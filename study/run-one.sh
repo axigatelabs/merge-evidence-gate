@@ -21,7 +21,16 @@ KEY="${REPO/\//__}"; DATA="$HERE/data/$KEY"; OUT="$HERE/out/$KEY"; WORK="$HERE/w
 TIMEOUT="${MEG_TIMEOUT:-1500}"   # seconds per phase
 mkdir -p "$OUT" "$WORK"
 
-rec=$(grep -E "^\{\"number\": ?$NUM," "$DATA/prs.jsonl" | head -1)
+# Records are one compact JSON object per line with keys in alphabetical order
+# (gh's jq sorts them), so select by parsing rather than by pattern.
+rec=$(python3 - "$DATA/prs.jsonl" "$NUM" <<'PY'
+import sys, json
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if line and json.loads(line).get("number") == int(sys.argv[2]):
+        print(line); break
+PY
+)
 [ -n "$rec" ] || { echo "no record for #$NUM in $DATA/prs.jsonl" >&2; exit 2; }
 field() { echo "$rec" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))"; }
 HEAD=$(field head_sha); BASE=$(field base_sha); AUTHOR=$(field author); HREF=$(field head_ref); BREF=$(field base_ref); TITLE=$(field title)
@@ -33,7 +42,7 @@ rm -rf "$WORK/repo"
 docker run --rm --name "meg-$KEY-$NUM-p1" \
   -v "$WORK:/work" -v "$GATE:/gate:ro" "$IMG" bash -lc "
     set -e
-    git clone -q --no-checkout https://github.com/$REPO.git /work/repo
+    git clone -q --no-checkout --filter=blob:none https://github.com/$REPO.git /work/repo
     cd /work/repo
     git fetch -q --depth=1 origin $HEAD && git fetch -q --depth=1 origin $BASE
     git checkout -q $HEAD
