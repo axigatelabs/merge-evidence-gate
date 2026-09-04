@@ -45,13 +45,28 @@ npm ci && npm run build
 study/fetch-prs.sh mastra-ai/mastra devin-ai-integration 40
 study/fetch-prs.sh supabase/supabase claude 30
 
-# 4. re-run one PR, or a batch (3 at a time)
+# 4. re-run one PR, or a batch (2 at a time)
 study/run-one.sh mastra-ai/mastra 22471
-study/run-batch.sh mastra-ai/mastra 40 3
+study/run-batch.sh mastra-ai/mastra 40 2
 
-# 5. the table
+# 5. after a harness fix: redo only the inconclusive/missing rows, one at a time
+study/rerun-inconclusive.sh mastra-ai/mastra
+
+# 6. after a reconciler change: regenerate specific rows (existing receipts are
+#    replaced; run-batch.sh would skip them). No test-command override here.
+study/rerun-prs.sh mastra-ai/mastra 1 22963 20938
+
+# 7. the table
 node study/summarize.mjs
 ```
+
+Each container is capped at `MEG_CPUS` CPUs (default 6, via `--cpuset-cpus`) and
+`MEG_MEM` memory (default 5g, swap off). The CPU pin is what bounds a vitest or
+jest suite's worker count — the runners size themselves from the CPUs they can
+see — so a suite that would fork 18 workers on the host forks 6 in the sandbox,
+without touching the repository's test command. Without the cap, two large
+suites side by side exhausted the Docker VM and the kernel killed the runner
+(exit 137) before it wrote its report.
 
 Receipts land in `study/out/<owner>__<repo>/<n>.json` with a `.meta.json`
 sidecar (verdict, agent signals, unverifiable claims, notes) and `.md` (the
@@ -62,11 +77,14 @@ are listed in `study/out/<owner>__<repo>/FAILED`.
 
 | Column | Meaning |
 |---|---|
-| Inconclusive | The re-run produced no per-test evidence (environment, toolchain, harness). Reported, **never counted as a pass**. |
-| Verdicts | PASS / NEEDS_HUMAN / FAIL over the conclusive PRs. |
-| Confirmed | Claims the gate mapped to the run and found consistent. |
-| Unsupported | Claims the gate could not map or check. Never counted against the author. |
-| Contradicted | Claims a discrepancy names (a command that failed, a count that differs, a test that vanished). |
+| Run inconclusive | The re-run produced no per-test evidence (the sandbox killed the runner, a toolchain is missing). Its command and count claims are unsupported, never contradicted; its diff-based findings (C3–C8) still count. |
+| Verdicts | PASS / NEEDS_HUMAN / FAIL / NEUTRAL over every PR. NEUTRAL is a run-inconclusive PR on which no diff-based check fired above info. |
+| Checkable claims | Claims a rule can confirm or contradict: a claimed command (C1), a stated count (C2), a ticked "tests added" box (C7). |
+| Confirmed | Checkable claims the gate mapped to the run or the diff and found consistent. |
+| Unsupported | Checkable claims the gate could not map. Never counted against the author. |
+| Contradicted | Checkable claims a discrepancy names (a command that failed, a count that differs, a "tests added" box with no test file in the diff). |
+| Stated, not checkable | Every other checkbox and caveat. Shown so the reader sees how much of a body is unverifiable by construction; never scored. |
+| PRs flagged | PRs with at least one contradicted claim or a verification-layer finding (C3/C4) above info — the headline number. |
 | Checks fired | C1–C8 hits across the repository. |
 
 ## Known limits
@@ -75,7 +93,12 @@ are listed in `study/out/<owner>__<repo>/FAILED`.
   the repository default. A PR that claims several commands has only the first
   verified in v1.
 - Monorepo suites can be large; the harness caps each phase (`MEG_TIMEOUT`,
-  default 1500 s). A timeout is recorded as inconclusive.
+  default 1500 s) and each container's CPUs and memory (`MEG_CPUS`, `MEG_MEM`;
+  the batch scripts size `MEG_MEM` from the Docker VM and the parallel slots
+  unless it is set). A memory kill (exit 137) leaves a receipt whose
+  `observed.no_evidence` is set — the claims are unverifiable, not contradicted.
+  A phase timeout kills the CLI itself, so it leaves no receipt: the PR is
+  listed in `FAILED` and picked up by `rerun-inconclusive.sh`.
 - Toolchains in the image: Node 24 (npm, pnpm, yarn), Python 3 + uv, Go, git.
   Repositories needing others (Rust, .NET, JVM) come back inconclusive until
   the image grows.

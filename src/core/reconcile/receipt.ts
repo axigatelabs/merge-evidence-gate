@@ -21,7 +21,7 @@ import type {
   Receipt,
   Verdict,
 } from '../types.js';
-import { missingAtHead } from './reconcile.js';
+import { hasNoEvidence, missingAtHead } from './reconcile.js';
 
 export interface BuildReceiptInput {
   pr: PullRequestFacts;
@@ -86,6 +86,7 @@ export function buildReceipt(input: BuildReceiptInput): Receipt {
       tests_digest: testsDigest(observed.tests),
       duration_s: Math.round(observed.durationMs / 1000),
       ...(noTestCommand ? { no_test_command: true } : {}),
+      ...(hasNoEvidence(observed) ? { no_evidence: true } : {}),
     },
     diff: {
       tests: {

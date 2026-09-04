@@ -54,7 +54,7 @@ function readmeScenario() {
   const facts = pr({ body: 'Fixes the prune path in the node package.' });
   const claims = [
     commandClaim('c1', 'go test ./...', { paths: ['./...'] }),
-    countClaim('c2', '68 tests, 0 failures', { total: 68, failed: 0 }),
+    countClaim('c2', '480 tests, 0 failures', { total: 480, failed: 0 }),
     checkboxClaim('c3', 'tests pass locally'),
   ];
   const run = observed({
@@ -83,7 +83,7 @@ describe('renderComment — the README layout', () => {
         '',
         '**Claims vs observed**',
         '- `go test ./...` — ran ✔  412/412 pass',
-        '- "68 tests, 0 failures" — (claimed 68 → observed 412) ✘ count',
+        '- "480 tests, 0 failures" — (claimed 480 → observed 412) ✘ count',
         '- "tests pass locally" — unverifiable',
         '',
         '**Verification layer**',

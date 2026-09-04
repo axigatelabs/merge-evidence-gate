@@ -11,7 +11,7 @@
 import type { CheckId, Policy, Severity } from '../types.js';
 
 /** Every check the reconciler can emit, in receipt order. */
-export const CHECK_IDS: readonly CheckId[] = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C8'];
+export const CHECK_IDS: readonly CheckId[] = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
 
 /** The v1 defaults; severities exactly as docs/receipt-spec.md. */
 export const DEFAULT_POLICY: Policy = {
@@ -23,6 +23,7 @@ export const DEFAULT_POLICY: Policy = {
     C4: 'fail',
     C5: 'needs-human',
     C6: 'needs-human',
+    C7: 'needs-human',
     C8: 'info',
   },
   agentsOnly: true,

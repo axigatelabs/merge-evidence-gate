@@ -14,6 +14,7 @@ describe('DEFAULT_POLICY', () => {
       C4: 'fail',
       C5: 'needs-human',
       C6: 'needs-human',
+      C7: 'needs-human',
       C8: 'info',
     });
   });

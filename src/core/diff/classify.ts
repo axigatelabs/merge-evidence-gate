@@ -11,11 +11,44 @@
  * concrete case it catches.
  */
 
-/** Directory segments that mark a tree as test-owned. Rust's `tests/` lands here too. */
+/**
+ * Directory segments that mark a tree as test-owned — any file below them
+ * counts. Compared case-insensitively so SwiftPM's and Symfony's `Tests/`
+ * count. Rust's `tests/` lands here too. `spec/` is deliberately absent:
+ * OpenAPI documents, RFCs, and spec-driven planning trees live there, and the
+ * test conventions that use it (RSpec `_spec.rb`, Jasmine `.spec.js`) are
+ * matched on the file name instead.
+ */
 const TEST_DIR_SEGMENTS: ReadonlySet<string> = new Set(['test', 'tests', '__tests__', 'testdata']);
+
+/** End-to-end trees where only SOURCE files are tests: `e2e/README.md` is documentation. */
+const E2E_DIR_SEGMENTS: ReadonlySet<string> = new Set(['e2e', 'cypress']);
+
+/** A file that holds code in a language with a test runner. */
+const SOURCE_EXT = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|kts|cs|php|swift|scala)$/;
+
+const isTestDirSegment = (segment: string): boolean => TEST_DIR_SEGMENTS.has(segment.toLowerCase());
+const isE2eDirSegment = (segment: string): boolean => E2E_DIR_SEGMENTS.has(segment.toLowerCase());
 
 /** Go test files: `pkg/node/prune_test.go`. */
 const GO_TEST_FILE = /_test\.go$/;
+
+/** Ruby: RSpec `spec/models/user_spec.rb`, Minitest `test/models/user_test.rb`. */
+const RB_TEST_FILE = /_(?:spec|test)\.rb$/;
+
+/**
+ * Class-per-file conventions: `UserTest.java`, `UserTests.cs`, `UserTest.php`,
+ * `UserTests.swift`. `*Spec` is NOT a test convention in these languages —
+ * `V1PodSpec.java`, `CopySpec.java`, `OpenApiSpec.kt` are product classes — so
+ * ScalaTest's `UserSpec.scala` is recognised by its `src/test/` directory.
+ */
+const CLASS_TEST_FILE = /Tests?\.(?:java|kt|kts|cs|php|swift)$/;
+
+/** Cypress specs: `login.cy.ts`. Script extensions only — `about.cy.md` is a Welsh page. */
+const CY_TEST_FILE = /\.cy\.[cm]?[jt]sx?$/;
+
+/** Rust keeps unit tests inside the source file; an added `#[test]` or `#[cfg(test)]` is a test edit. */
+const RUST_INLINE_TEST = /^\s*#\[(?:test|cfg\(test\))\]/;
 
 /** Python test modules, both orderings: `tests/test_login.py`, `login_test.py`. */
 const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py)$/;
@@ -208,7 +241,22 @@ export function isTestFile(path: string): boolean {
   if (PY_TEST_FILE.test(p)) return true;
   if (PY_CONFTEST.test(p)) return true;
   if (JS_TEST_FILE.test(p)) return true;
-  return dirSegments(p).some((segment) => TEST_DIR_SEGMENTS.has(segment));
+  if (RB_TEST_FILE.test(p)) return true;
+  if (CLASS_TEST_FILE.test(p)) return true;
+  if (CY_TEST_FILE.test(p)) return true;
+  const segments = dirSegments(p);
+  if (segments.some(isTestDirSegment)) return true;
+  return SOURCE_EXT.test(p) && segments.some(isE2eDirSegment);
+}
+
+/**
+ * True when a Rust source file's patch ADDS an inline test (`#[test]`,
+ * `#[cfg(test)]`). Rust puts unit tests next to the code, so a path-only
+ * classifier would call an honest "added tests" PR untested.
+ */
+export function hasInlineTests(path: string, patch: string | undefined): boolean {
+  if (!/\.rs$/.test(normalize(path))) return false;
+  return addedLines(patch).some((line) => RUST_INLINE_TEST.test(line));
 }
 
 /**
@@ -224,7 +272,7 @@ export function isSnapshotFile(path: string): boolean {
   if (segments.includes('testdata')) return true;
   if (segments.includes('fixtures')) {
     // `fixtures/` only counts under a test dir: `test/fixtures/user.json` yes, `src/fixtures/flags.json` no.
-    return segments.some((segment) => TEST_DIR_SEGMENTS.has(segment));
+    return segments.some(isTestDirSegment);
   }
   return false;
 }

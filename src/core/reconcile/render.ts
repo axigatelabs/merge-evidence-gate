@@ -11,6 +11,7 @@
  */
 
 import type { Discrepancy, ParsedCommand, ParsedCount, Receipt, RenderedComment } from '../types.js';
+import { claimsTestsAdded } from './reconcile.js';
 
 /** Hidden marker used to find and update the same comment idempotently. */
 export const COMMENT_MARKER = '<!-- merge-evidence-gate -->';
@@ -113,6 +114,10 @@ function claimLines(receipt: Receipt, unverifiable: readonly string[]): string[]
     const count = countOf(claim);
     if (count !== undefined) {
       rendered.add(claim.id);
+      if (unmapped.has(claim.id)) {
+        lines.push(clamp(`- ${quoted(claim)} — unverifiable`, MAX_LINE_CHARS));
+        continue;
+      }
       const mismatch = receipt.discrepancies.find((d) => d.check === 'C2' && d.claim === claim.id);
       const claimed = count.total ?? count.passed ?? count.failed;
       const observed =
@@ -132,15 +137,37 @@ function claimLines(receipt: Receipt, unverifiable: readonly string[]): string[]
       );
       continue;
     }
+
+    // A ticked "I have added tests" box is a claim about the diff (C7).
+    if (claimsTestsAdded(claim)) {
+      rendered.add(claim.id);
+      const label = quoted(claim);
+      if (unmapped.has(claim.id)) {
+        lines.push(clamp(`- ${label} — unverifiable`, MAX_LINE_CHARS));
+        continue;
+      }
+      const hit = receipt.discrepancies.find((d) => d.check === 'C7' && d.claim === claim.id);
+      lines.push(
+        clamp(
+          hit === undefined
+            ? `- ${label} — test files in the diff ✔`
+            : `- ${label} — ${icon(hit.severity)} no test file added, modified, or renamed in the diff`,
+          MAX_LINE_CHARS,
+        ),
+      );
+      continue;
+    }
   }
 
   // Anything the reconciler could not map that has no command/count line of its
   // own (an unparsed command, a prose checkbox) still gets a line, because
-  // "unverifiable" is information for the reader, not a finding.
+  // "unverifiable" is information for the reader, not a finding. Free-text
+  // entries are the pipeline's notes ("runner: …", "diff: …"): they are shown
+  // as they are, never suffixed as if they were claims.
   for (const entry of unverifiable) {
     if (rendered.has(entry)) continue;
     const claim = receipt.claims.find((c) => c.id === entry);
-    lines.push(clamp(`- ${claim === undefined ? entry : quoted(claim)} — unverifiable`, MAX_LINE_CHARS));
+    lines.push(clamp(claim === undefined ? `- ${entry}` : `- ${quoted(claim)} — unverifiable`, MAX_LINE_CHARS));
   }
 
   return lines;
@@ -180,12 +207,21 @@ export function renderComment(receipt: Receipt, opts?: RenderOptions): RenderedC
   const body: string[] = [];
   const claims = claimLines(receipt, unverifiable);
   body.push('**Claims vs observed**');
+  if (receipt.observed.no_evidence === true) {
+    body.push(
+      `- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +
+        'claims about the run are unverifiable; ' +
+        (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'),
+    );
+  }
   body.push(
     ...(claims.length > 0
       ? claims
       : [
           receipt.observed.no_test_command === true
-            ? '- no test command found — the gate abstains'
+            ? receipt.verdict === 'NEUTRAL'
+              ? '- no test command found — the gate abstains'
+              : '- no test command found — the verdict rests on the diff alone'
             : '- no parseable claims in the PR body',
         ]),
   );

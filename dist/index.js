@@ -83485,7 +83485,7 @@ function sortedUnique(values) {
 function sortedHits(hits) {
     const seen = new Map();
     for (const hit of hits) {
-        seen.set(`${hit.file} ${hit.marker}`, hit);
+        seen.set(`${hit.file} :: ${hit.marker}`, hit);
     }
     return [...seen.values()].sort((a, b) => a.file === b.file ? compare(a.marker, b.marker) : compare(a.file, b.file));
 }
@@ -83493,7 +83493,7 @@ function sortedHits(hits) {
 function sortedEdits(edits) {
     const seen = new Map();
     for (const edit of edits) {
-        seen.set(`${edit.file} ${edit.reason}`, edit);
+        seen.set(`${edit.file} :: ${edit.reason}`, edit);
     }
     return [...seen.values()].sort((a, b) => a.file === b.file ? compare(a.reason, b.reason) : compare(a.file, b.file));
 }
@@ -83534,7 +83534,10 @@ function analyzeDiff(files, opts) {
         const rename = file.status === 'R' || file.status === 'C' ? renameEndpoints(file) : null;
         // A rename counts as touching a test when EITHER endpoint is a test path:
         // `foo.go` → `foo_test.go` and `a_test.go` → `b.go` both move test coverage.
-        const isTest = (0, classify_js_1.isTestFile)(file.path) || (rename !== null && (0, classify_js_1.isTestFile)(rename.from));
+        // A Rust source file that gains an inline `#[test]` counts as a test edit.
+        const isTest = (0, classify_js_1.isTestFile)(file.path) ||
+            (rename !== null && (0, classify_js_1.isTestFile)(rename.from)) ||
+            (0, classify_js_1.hasInlineTests)(file.path, file.patch);
         const isSnapshot = (0, classify_js_1.isSnapshotFile)(file.path);
         const isDependency = (0, classify_js_1.isDependencyFile)(file.path);
         if (isTest) {
@@ -83613,13 +83616,40 @@ exports.REASON_FAILURE_SUPPRESSED = exports.REASON_TEST_INFRA = exports.REASON_A
 exports.addedLines = addedLines;
 exports.changedLines = changedLines;
 exports.isTestFile = isTestFile;
+exports.hasInlineTests = hasInlineTests;
 exports.isSnapshotFile = isSnapshotFile;
 exports.isDependencyFile = isDependencyFile;
 exports.verificationLayerReason = verificationLayerReason;
-/** Directory segments that mark a tree as test-owned. Rust's `tests/` lands here too. */
+/**
+ * Directory segments that mark a tree as test-owned — any file below them
+ * counts. Compared case-insensitively so SwiftPM's and Symfony's `Tests/`
+ * count. Rust's `tests/` lands here too. `spec/` is deliberately absent:
+ * OpenAPI documents, RFCs, and spec-driven planning trees live there, and the
+ * test conventions that use it (RSpec `_spec.rb`, Jasmine `.spec.js`) are
+ * matched on the file name instead.
+ */
 const TEST_DIR_SEGMENTS = new Set(['test', 'tests', '__tests__', 'testdata']);
+/** End-to-end trees where only SOURCE files are tests: `e2e/README.md` is documentation. */
+const E2E_DIR_SEGMENTS = new Set(['e2e', 'cypress']);
+/** A file that holds code in a language with a test runner. */
+const SOURCE_EXT = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|kts|cs|php|swift|scala)$/;
+const isTestDirSegment = (segment) => TEST_DIR_SEGMENTS.has(segment.toLowerCase());
+const isE2eDirSegment = (segment) => E2E_DIR_SEGMENTS.has(segment.toLowerCase());
 /** Go test files: `pkg/node/prune_test.go`. */
 const GO_TEST_FILE = /_test\.go$/;
+/** Ruby: RSpec `spec/models/user_spec.rb`, Minitest `test/models/user_test.rb`. */
+const RB_TEST_FILE = /_(?:spec|test)\.rb$/;
+/**
+ * Class-per-file conventions: `UserTest.java`, `UserTests.cs`, `UserTest.php`,
+ * `UserTests.swift`. `*Spec` is NOT a test convention in these languages —
+ * `V1PodSpec.java`, `CopySpec.java`, `OpenApiSpec.kt` are product classes — so
+ * ScalaTest's `UserSpec.scala` is recognised by its `src/test/` directory.
+ */
+const CLASS_TEST_FILE = /Tests?\.(?:java|kt|kts|cs|php|swift)$/;
+/** Cypress specs: `login.cy.ts`. Script extensions only — `about.cy.md` is a Welsh page. */
+const CY_TEST_FILE = /\.cy\.[cm]?[jt]sx?$/;
+/** Rust keeps unit tests inside the source file; an added `#[test]` or `#[cfg(test)]` is a test edit. */
+const RUST_INLINE_TEST = /^\s*#\[(?:test|cfg\(test\))\]/;
 /** Python test modules, both orderings: `tests/test_login.py`, `login_test.py`. */
 const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py)$/;
 /** Python shared test fixtures/plugins at any depth: `tests/conftest.py`. */
@@ -83790,7 +83820,26 @@ function isTestFile(path) {
         return true;
     if (JS_TEST_FILE.test(p))
         return true;
-    return dirSegments(p).some((segment) => TEST_DIR_SEGMENTS.has(segment));
+    if (RB_TEST_FILE.test(p))
+        return true;
+    if (CLASS_TEST_FILE.test(p))
+        return true;
+    if (CY_TEST_FILE.test(p))
+        return true;
+    const segments = dirSegments(p);
+    if (segments.some(isTestDirSegment))
+        return true;
+    return SOURCE_EXT.test(p) && segments.some(isE2eDirSegment);
+}
+/**
+ * True when a Rust source file's patch ADDS an inline test (`#[test]`,
+ * `#[cfg(test)]`). Rust puts unit tests next to the code, so a path-only
+ * classifier would call an honest "added tests" PR untested.
+ */
+function hasInlineTests(path, patch) {
+    if (!/\.rs$/.test(normalize(path)))
+        return false;
+    return addedLines(patch).some((line) => RUST_INLINE_TEST.test(line));
 }
 /**
  * True when the path holds recorded expected output rather than assertions:
@@ -83807,7 +83856,7 @@ function isSnapshotFile(path) {
         return true;
     if (segments.includes('fixtures')) {
         // `fixtures/` only counts under a test dir: `test/fixtures/user.json` yes, `src/fixtures/flags.json` no.
-        return segments.some((segment) => TEST_DIR_SEGMENTS.has(segment));
+        return segments.some(isTestDirSegment);
     }
     return false;
 }
@@ -84048,7 +84097,7 @@ exports.DEFAULT_POLICY = exports.CHECK_IDS = void 0;
 exports.resolveSeverity = resolveSeverity;
 exports.parsePolicyYaml = parsePolicyYaml;
 /** Every check the reconciler can emit, in receipt order. */
-exports.CHECK_IDS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C8'];
+exports.CHECK_IDS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
 /** The v1 defaults; severities exactly as docs/receipt-spec.md. */
 exports.DEFAULT_POLICY = {
     version: '1.0.0',
@@ -84059,6 +84108,7 @@ exports.DEFAULT_POLICY = {
         C4: 'fail',
         C5: 'needs-human',
         C6: 'needs-human',
+        C7: 'needs-human',
         C8: 'info',
     },
     agentsOnly: true,
@@ -84290,6 +84340,7 @@ function buildReceipt(input) {
             tests_digest: testsDigest(observed.tests),
             duration_s: Math.round(observed.durationMs / 1000),
             ...(noTestCommand ? { no_test_command: true } : {}),
+            ...((0, reconcile_js_1.hasNoEvidence)(observed) ? { no_evidence: true } : {}),
         },
         diff: {
             tests: {
@@ -84340,6 +84391,9 @@ function sortKeys(record) {
  * reported as `unverifiable`, never held against the author.
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.TESTS_ADDED_NEGATION = exports.TESTS_ADDED_LABEL = void 0;
+exports.hasNoEvidence = hasNoEvidence;
+exports.claimsTestsAdded = claimsTestsAdded;
 exports.missingAtHead = missingAtHead;
 exports.decideVerdict = decideVerdict;
 exports.reconcile = reconcile;
@@ -84413,19 +84467,71 @@ function selectorMatches(selector, testIds) {
     }
     return testIds.some((id) => id === path || id.startsWith(path));
 }
+/** Runner families a package script resolves to: `pnpm test` → vitest, jest, or an opaque script. */
+const NODE_SCRIPT_RUNNERS = new Set(['jest', 'vitest', 'npm']);
+/** The first two words of an invocation; `npm run test` and `npm test` are the same one. */
+function scriptInvocation(command) {
+    return command.trim().replace(/^npm\s+run\s+/, 'npm ').split(/\s+/).slice(0, 2).join(' ');
+}
 /** True when the observed run plausibly IS the run the claim describes. */
 function isMappable(parsed, observed) {
     if (observed.noTestCommand === true)
         return false;
     if (parsed.runner === 'unknown' || observed.runner === 'none')
         return false;
-    if (parsed.runner !== observed.runner)
+    if (parsed.runner === 'npm') {
+        // A claimed `pnpm test` names a package script whose runner the extractor
+        // cannot know; the run resolved that script (to vitest, jest, or an opaque
+        // one). It maps when the run was started by the same invocation.
+        if (!NODE_SCRIPT_RUNNERS.has(observed.runner))
+            return false;
+        if (scriptInvocation(parsed.raw) !== scriptInvocation(observed.command))
+            return false;
+    }
+    else if (parsed.runner !== observed.runner) {
         return false;
+    }
     const testIds = observed.tests.map((test) => test.id);
     if (!parsed.paths.every((path) => selectorMatches(path, testIds)))
         return false;
     const filters = parsed.nameFilters.map(normalizeNameFilter).filter((f) => f !== '');
     return filters.every((filter) => testIds.some((id) => id.includes(filter)));
+}
+/** Exit statuses of 128 and above are 128 + signal by shell convention: the runner was killed. */
+const KILLED_EXIT = 128;
+/** `bash -c` could not run the command at all: not executable (126) or not found (127). */
+const CANNOT_RUN_EXITS = new Set([126, 127]);
+/**
+ * Families with no per-test output ever. Their exit code is the only evidence,
+ * and some of their runners (mocha) exit with the failure COUNT, so a status of
+ * 130 there is 130 failed tests, not SIGINT — the 128+ rule does not apply.
+ */
+const OPAQUE_RUNNERS = new Set(['cargo', 'make', 'npm']);
+/**
+ * True when the command ran but produced NO evidence about the PR: the runner
+ * died by signal (OOM, SIGTERM), could not start at all (exit 126/127 — a
+ * toolchain missing from the runner), or the family writes a report and none
+ * was found. Nothing in such a run can confirm or contradict a claim, so the
+ * claims become unverifiable and the verdict abstains.
+ *
+ * Deliberately narrow. A report that says the suite failed to load (jest and
+ * vitest write one, with zero tests and a non-zero exit) IS evidence: the PR
+ * broke the tests. A plain `cargo test` or `make test` has no per-test output
+ * ever, and its normal exit code is still the evidence C1 reads. A run with no
+ * test command at all is a separate state (`noTestCommand`).
+ */
+function hasNoEvidence(observed) {
+    if (observed.noTestCommand === true)
+        return false;
+    if (observed.tests.length > 0 || observed.totals.run > 0)
+        return false;
+    if (observed.reportMissing === true)
+        return true;
+    if (observed.signal !== undefined)
+        return true;
+    if (CANNOT_RUN_EXITS.has(observed.exitCode))
+        return true;
+    return observed.exitCode >= KILLED_EXIT && !OPAQUE_RUNNERS.has(observed.runner);
 }
 function commandParsed(claim) {
     return claim.parsed.kind === 'command' ? claim.parsed : undefined;
@@ -84443,11 +84549,14 @@ function countParsed(claim) {
 function checkC1(claims, observed, policy) {
     const discrepancies = [];
     const unverifiable = [];
+    const noEvidence = hasNoEvidence(observed);
     for (const claim of claims) {
         const parsed = commandParsed(claim);
         if (parsed === undefined)
             continue;
-        if (!isMappable(parsed, observed)) {
+        // A run that produced no per-test evidence cannot contradict anything —
+        // "exit 137, 0 tests" is a sandbox fact about the runner, not about the PR.
+        if (noEvidence || !isMappable(parsed, observed)) {
             unverifiable.push(claim.id);
             continue;
         }
@@ -84469,15 +84578,43 @@ function checkC1(claims, observed, policy) {
     }
     return { discrepancies, unverifiable };
 }
-/** C2 — the test count the agent stated does not match what ran. */
+/**
+ * C2 — the test count the agent stated does not match what ran.
+ *
+ * Needs per-test evidence on the observed side: with no run (no test
+ * command), no evidence, or an opaque runner that enumerates nothing, there is
+ * no observed count to compare against and every count claim is unverifiable —
+ * never "claimed 1480; 0 observed". A claim about fewer tests than the run
+ * executed is a subset claim (one package of a monorepo) and is unverifiable
+ * too.
+ */
 function checkC2(claims, observed, policy) {
-    if (observed.noTestCommand === true)
-        return [];
     const discrepancies = [];
+    const unverifiable = [];
+    const noCounts = observed.noTestCommand === true || hasNoEvidence(observed) || observed.totals.run === 0;
     for (const claim of claims) {
         const parsed = countParsed(claim);
         if (parsed === undefined)
             continue;
+        if (noCounts) {
+            unverifiable.push(claim.id);
+            continue;
+        }
+        // A claim smaller than the run describes a subset — "322 tests" for one
+        // package while the gate ran the whole monorepo (5,904). The observed
+        // totals then say nothing about that subset, failures included, so the
+        // claim is unverifiable. The claim's size is its total, or the sum of the
+        // parts it states ("400 passed, 12 skipped" describes 412). A bare failure
+        // count has no size and is always compared. A claim LARGER than the run is
+        // still compared: more tests than exist is a real discrepancy.
+        const claimedSize = parsed.total ??
+            (parsed.passed !== undefined
+                ? parsed.passed + (parsed.failed ?? 0) + (parsed.skipped ?? 0)
+                : undefined);
+        if (claimedSize !== undefined && claimedSize < observed.totals.run) {
+            unverifiable.push(claim.id);
+            continue;
+        }
         const comparisons = [];
         if (parsed.total !== undefined && parsed.total !== observed.totals.run) {
             comparisons.push({ label: 'total', claimed: parsed.total, observed: observed.totals.run });
@@ -84504,7 +84641,85 @@ function checkC2(claims, observed, policy) {
             ]),
         });
     }
-    return discrepancies;
+    return { discrepancies, unverifiable };
+}
+/**
+ * A ticked checklist item that asserts tests were ADDED. Two shapes:
+ *
+ *   verb → allow-listed modifiers → tests   "I have added meaningful tests",
+ *                                           "added tests that prove …",
+ *                                           "wrote unit tests for the parser"
+ *   tests → (were | have been) → added      "Tests added for X", "New tests
+ *     (anchored at the start of the label)  were added" — never "removed the
+ *                                           flaky tests added in #99"
+ *
+ * The verb list is short on purpose and never includes a bare "new" or "add":
+ * "New and existing unit tests pass" asserts passing, not adding, and sits in
+ * the most-copied PR template directly under the real "I have added tests"
+ * line. The noun must be plural, or an explicit "test case", "test coverage",
+ * or "a test for": "added a test account", "added a test plan section",
+ * "added the `--skip-tests` flag" never count.
+ *
+ * `study/summarize.mjs` carries a verbatim copy; a test keeps them identical.
+ */
+exports.TESTS_ADDED_LABEL = /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/\w+)?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|(?:unit|integration|regression|e2e|end-to-end)\s+tests?|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
+/**
+ * Negations and hedges: "no tests added", "tests weren't added", "N/A",
+ * "(if applicable)", "in a follow-up", "if fixing a bug", "or this PR is
+ * test-exempt". A ticked box with one of these is an honest statement or a
+ * template hedge, never a hit.
+ */
+exports.TESTS_ADDED_NEGATION = /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bor\s+(?:this|the|it|we|i)\b/i;
+/** True for a checked checkbox claim whose label asserts tests were added. */
+function claimsTestsAdded(claim) {
+    if (claim.parsed.kind !== 'checkbox' || !claim.parsed.checked)
+        return false;
+    const label = claim.parsed.label;
+    return exports.TESTS_ADDED_LABEL.test(label) && !exports.TESTS_ADDED_NEGATION.test(label);
+}
+function changedFileCount(diff) {
+    return (diff.testFiles.added.length +
+        diff.testFiles.modified.length +
+        diff.testFiles.deleted.length +
+        diff.testFiles.renamed.length +
+        diff.dependencyFiles.length +
+        diff.snapshotFiles.length +
+        diff.sourceFiles.length);
+}
+/**
+ * C7 — the body says tests were added; the diff touches no test file.
+ *
+ * Purely structural: a checked "I have added tests" box against the diff's
+ * test-file categories. Modified and renamed test files count as touched — the
+ * check is about a claim with nothing behind it, not about how much. A diff
+ * with no changed files at all (an empty PR, or a base that could not be
+ * compared) gives the check nothing to look at, so the claim is unverifiable —
+ * never a hit, never a confirmation.
+ */
+function checkC7(claims, diff, policy) {
+    const eligible = claims.filter(claimsTestsAdded);
+    if (eligible.length === 0)
+        return { discrepancies: [], unverifiable: [] };
+    const changed = diff.fileCount ?? changedFileCount(diff);
+    if (changed === 0)
+        return { discrepancies: [], unverifiable: eligible.map((claim) => claim.id) };
+    const touched = diff.testFiles.added.length + diff.testFiles.modified.length + diff.testFiles.renamed.length;
+    if (touched > 0)
+        return { discrepancies: [], unverifiable: [] };
+    return {
+        discrepancies: eligible.map((claim) => ({
+            check: 'C7',
+            severity: (0, policy_js_1.resolveSeverity)('C7', policy),
+            claim: claim.id,
+            summary: 'Claimed tests were added; the diff touches no test file',
+            evidence: [
+                `claimed: "${claim.parsed.kind === 'checkbox' ? claim.parsed.label : claim.text}"`,
+                'test files added=0 modified=0 renamed=0',
+                `changed files: ${changed}`,
+            ],
+        })),
+        unverifiable: [],
+    };
 }
 /** Test ids enumerated at base that are gone at head. */
 function missingAtHead(observed) {
@@ -84640,16 +84855,29 @@ function checkC8(diff, pr, policy) {
     ];
 }
 /**
- * Verdict precedence: a run with no test command abstains (NEUTRAL) unless the
- * verification-layer checks found something on their own; otherwise any `fail`
- * wins, then any `needs-human`, else PASS.
+ * The checks that need no test run: they read the diff (and, for C7, the diff
+ * against a claim), so their findings stand even when the run said nothing.
+ * C8 is here so a repository that raises its severity gets what it asked for.
+ */
+const RUN_INDEPENDENT_CHECKS = new Set([
+    'C3',
+    'C4',
+    'C5',
+    'C6',
+    'C7',
+    'C8',
+]);
+/**
+ * Verdict precedence: a run with no test command — or one that produced no
+ * per-test evidence — abstains (NEUTRAL) unless a run-independent check found
+ * something above `info`; otherwise any `fail` wins, then any `needs-human`,
+ * else PASS.
  */
 function decideVerdict(discrepancies, observed) {
     const hasFail = discrepancies.some((d) => d.severity === 'fail');
     const hasNeedsHuman = discrepancies.some((d) => d.severity === 'needs-human');
-    if (observed.noTestCommand === true) {
-        const blocking = discrepancies.some((d) => (d.check === 'C3' || d.check === 'C4' || d.check === 'C5' || d.check === 'C6') &&
-            (d.severity === 'fail' || d.severity === 'needs-human'));
+    if (observed.noTestCommand === true || hasNoEvidence(observed)) {
+        const blocking = discrepancies.some((d) => RUN_INDEPENDENT_CHECKS.has(d.check) && (d.severity === 'fail' || d.severity === 'needs-human'));
         if (!blocking)
             return 'NEUTRAL';
     }
@@ -84664,19 +84892,22 @@ function reconcile(input) {
     const policy = input.policy ?? policy_js_1.DEFAULT_POLICY;
     const { pr, claims, observed, diff } = input;
     const c1 = checkC1(claims, observed, policy);
+    const c2 = checkC2(claims, observed, policy);
+    const c7 = checkC7(claims, diff, policy);
     const discrepancies = [
         ...c1.discrepancies,
-        ...checkC2(claims, observed, policy),
+        ...c2.discrepancies,
         ...checkC3(diff, observed, policy),
         ...checkC4(diff, policy),
         ...checkC5(diff, pr, policy),
         ...checkC6(diff, policy),
+        ...c7.discrepancies,
         ...checkC8(diff, pr, policy),
     ];
     return {
         discrepancies,
         verdict: decideVerdict(discrepancies, observed),
-        unverifiable: c1.unverifiable,
+        unverifiable: [...c1.unverifiable, ...c2.unverifiable, ...c7.unverifiable],
     };
 }
 
@@ -84684,7 +84915,7 @@ function reconcile(input) {
 /***/ }),
 
 /***/ 29162:
-/***/ ((__unused_webpack_module, exports) => {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
@@ -84703,6 +84934,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MAX_TITLE_CHARS = exports.MAX_COMMENT_BYTES = exports.COMMENT_MARKER = void 0;
 exports.formatDuration = formatDuration;
 exports.renderComment = renderComment;
+const reconcile_js_1 = __nccwpck_require__(84888);
 /** Hidden marker used to find and update the same comment idempotently. */
 exports.COMMENT_MARKER = '<!-- merge-evidence-gate -->';
 /** Hard cap on the rendered markdown. */
@@ -84780,6 +85012,10 @@ function claimLines(receipt, unverifiable) {
         const count = countOf(claim);
         if (count !== undefined) {
             rendered.add(claim.id);
+            if (unmapped.has(claim.id)) {
+                lines.push(clamp(`- ${quoted(claim)} — unverifiable`, MAX_LINE_CHARS));
+                continue;
+            }
             const mismatch = receipt.discrepancies.find((d) => d.check === 'C2' && d.claim === claim.id);
             const claimed = count.total ?? count.passed ?? count.failed;
             const observed = count.total !== undefined
@@ -84793,15 +85029,31 @@ function claimLines(receipt, unverifiable) {
                 : `- ${label} — (claimed ${claimed ?? '?'} → observed ${observed}) ✘ count`, MAX_LINE_CHARS));
             continue;
         }
+        // A ticked "I have added tests" box is a claim about the diff (C7).
+        if ((0, reconcile_js_1.claimsTestsAdded)(claim)) {
+            rendered.add(claim.id);
+            const label = quoted(claim);
+            if (unmapped.has(claim.id)) {
+                lines.push(clamp(`- ${label} — unverifiable`, MAX_LINE_CHARS));
+                continue;
+            }
+            const hit = receipt.discrepancies.find((d) => d.check === 'C7' && d.claim === claim.id);
+            lines.push(clamp(hit === undefined
+                ? `- ${label} — test files in the diff ✔`
+                : `- ${label} — ${icon(hit.severity)} no test file added, modified, or renamed in the diff`, MAX_LINE_CHARS));
+            continue;
+        }
     }
     // Anything the reconciler could not map that has no command/count line of its
     // own (an unparsed command, a prose checkbox) still gets a line, because
-    // "unverifiable" is information for the reader, not a finding.
+    // "unverifiable" is information for the reader, not a finding. Free-text
+    // entries are the pipeline's notes ("runner: …", "diff: …"): they are shown
+    // as they are, never suffixed as if they were claims.
     for (const entry of unverifiable) {
         if (rendered.has(entry))
             continue;
         const claim = receipt.claims.find((c) => c.id === entry);
-        lines.push(clamp(`- ${claim === undefined ? entry : quoted(claim)} — unverifiable`, MAX_LINE_CHARS));
+        lines.push(clamp(claim === undefined ? `- ${entry}` : `- ${quoted(claim)} — unverifiable`, MAX_LINE_CHARS));
     }
     return lines;
 }
@@ -84834,11 +85086,18 @@ function renderComment(receipt, opts) {
     const body = [];
     const claims = claimLines(receipt, unverifiable);
     body.push('**Claims vs observed**');
+    if (receipt.observed.no_evidence === true) {
+        body.push(`- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +
+            'claims about the run are unverifiable; ' +
+            (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'));
+    }
     body.push(...(claims.length > 0
         ? claims
         : [
             receipt.observed.no_test_command === true
-                ? '- no test command found — the gate abstains'
+                ? receipt.verdict === 'NEUTRAL'
+                    ? '- no test command found — the gate abstains'
+                    : '- no test command found — the verdict rests on the diff alone'
                 : '- no parseable claims in the PR body',
         ]));
     body.push('', '**Verification layer**', ...verificationLines(receipt));
@@ -85459,12 +85718,14 @@ function readPackageManager(files) {
 }
 /**
  * How each package manager is invoked, and whether extra args need a `--`
- * separator to reach the underlying script. yarn and bun forward trailing args
- * directly; npm and pnpm need the separator.
+ * separator to reach the underlying script. Only npm needs it: pnpm, yarn and
+ * bun forward trailing args directly, and pnpm passes an explicit `--` THROUGH
+ * to the script — `vitest run -- --reporter=json` then treats the flags as file
+ * filters and writes no report (seen on a real monorepo run).
  */
 const PM_INVOCATION = {
     npm: { command: 'npm test', separator: ' --' },
-    pnpm: { command: 'pnpm test', separator: ' --' },
+    pnpm: { command: 'pnpm test', separator: '' },
     yarn: { command: 'yarn test', separator: '' },
     bun: { command: 'bun run test', separator: '' },
 };
@@ -85567,8 +85828,9 @@ function resolveWrittenCommand(command, files) {
     if (isPackageManagerCommand(command)) {
         const pkg = parsePackageJson(files['package.json']);
         const node = classifyNodeRunner(pkg?.scripts?.['test'], pkg);
-        // The command already names the package manager, so append args to it directly.
-        const separator = /(^|\s)(npm|pnpm)(\s|$)/.test(command) ? ' --' : '';
+        // The command already names the package manager, so append args to it
+        // directly. Only npm needs the `--` separator (see PM_INVOCATION).
+        const separator = /(^|\s)npm(\s|$)/.test(command) ? ' --' : '';
         if (node === 'vitest')
             return injectVitest(command, separator);
         if (node === 'jest')
@@ -85775,6 +86037,11 @@ exports.run = run;
  * publish that as a sticky comment, a job summary, a `receipt.json` artifact and
  * a set of outputs.
  *
+ * The pipeline itself lives in `src/pipeline.ts`, which the offline CLI
+ * (`src/cli.ts`) runs too; this file is the GitHub half of it — the event and
+ * payload checks, the token, the outputs, the annotations, the artifact, the
+ * summary and the comment.
+ *
  * Two rules shape every line below.
  *
  *  1. **The verdict is the only thing that may fail the job.** A fork PR's
@@ -85786,36 +86053,22 @@ exports.run = run;
  *     reconciler cannot map to the observed run is reported as unverifiable and
  *     shown on the comment; it is not counted against the PR.
  *
- * All `@actions/*` usage lives here and in `src/action/github.ts`; the core
- * modules under `src/core/` are pure and know nothing about a runner.
+ * All `@actions/github` and `@actions/artifact` usage lives here and in
+ * `src/action/github.ts`; the core modules under `src/core/` are pure and know
+ * nothing about a runner.
  */
-const node_fs_1 = __nccwpck_require__(73024);
 const node_path_1 = __nccwpck_require__(76760);
 const artifact_1 = __nccwpck_require__(76846);
 const core = __importStar(__nccwpck_require__(37484));
-const exec = __importStar(__nccwpck_require__(95236));
 const github = __importStar(__nccwpck_require__(93228));
 const github_js_1 = __nccwpck_require__(36339);
-const env_js_1 = __nccwpck_require__(89069);
-const index_js_1 = __nccwpck_require__(43217);
-const index_js_2 = __nccwpck_require__(2899);
-const index_js_3 = __nccwpck_require__(876);
-const index_js_4 = __nccwpck_require__(94375);
+const pipeline_js_1 = __nccwpck_require__(15165);
 /** Events that carry a pull request worth gating. */
 const GATE_EVENTS = new Set(['pull_request', 'pull_request_target', 'merge_group']);
 /** Artifact name the receipt is uploaded under. */
 const ARTIFACT_NAME = 'merge-evidence-receipt';
 /** Most discrepancy annotations to emit, so one bad PR cannot flood the log. */
 const MAX_ANNOTATIONS = 10;
-/** Where the raw combined stdout/stderr of the test run is kept. */
-const RUN_LOG = `${index_js_4.REPORT_DIR}/run.log`;
-const EMPTY_TOTALS = {
-    run: 0,
-    passed: 0,
-    failed: 0,
-    skipped: 0,
-    retried: 0,
-};
 /**
  * A boolean action input. `core.getBooleanInput` throws on anything outside the
  * YAML 1.2 spelling; a typo in a workflow file must not fail the gate, so this
@@ -85854,61 +86107,6 @@ function readInputs() {
         workingDirectory: core.getInput('working-directory').trim() || '.',
     };
 }
-/** Environment for the test run: the runner's own, plus the reporter overlay. */
-function mergedEnv(overlay) {
-    const env = {};
-    for (const [key, value] of Object.entries(process.env)) {
-        if (value !== undefined)
-            env[key] = value;
-    }
-    return { ...env, ...overlay };
-}
-/**
- * Run `commandLine` and capture both streams. Never rejects: a command that
- * cannot even be spawned comes back as code 127 with the reason on stderr, so
- * every caller handles one shape.
- */
-async function execCapture(commandLine, args, options) {
-    let stdout = '';
-    let stderr = '';
-    try {
-        const code = await exec.exec(commandLine, args, {
-            cwd: options.cwd,
-            ...(options.env === undefined ? {} : { env: options.env }),
-            ignoreReturnCode: true,
-            silent: options.silent ?? false,
-            listeners: {
-                stdout: (data) => {
-                    stdout += data.toString();
-                },
-                stderr: (data) => {
-                    stderr += data.toString();
-                },
-            },
-        });
-        return { code, stdout, stderr };
-    }
-    catch (err) {
-        return { code: 127, stdout, stderr: `${stderr}${err instanceof Error ? err.message : String(err)}` };
-    }
-}
-/** `git …` in `cwd`, quietly — git chatter is noise unless something failed. */
-async function git(cwd, ...args) {
-    return execCapture('git', args, { cwd, silent: true });
-}
-/**
- * Run a shell command line the way the repository's own CI would.
- *
- * Detected commands are shell text (`npm test -- --reporter=json`,
- * `make test`, occasionally with `&&`), so they go through a shell rather than
- * `exec`'s argv splitter, which does not understand operators.
- */
-async function shell(commandLine, options) {
-    if (process.platform === 'win32') {
-        return execCapture('pwsh', ['-NoProfile', '-Command', commandLine], options);
-    }
-    return execCapture('bash', ['-c', commandLine], options);
-}
 function str(value) {
     return typeof value === 'string' ? value : '';
 }
@@ -85938,6 +86136,363 @@ function readPullRequest(repoFullName) {
         title: str(payload.title),
         commitMessages: [],
     };
+}
+// ---------------------------------------------------------------------------
+// Publishing
+// ---------------------------------------------------------------------------
+/** Emit one annotation per discrepancy, capped, plus a compact table in the log. */
+function annotate(discrepancies) {
+    if (discrepancies.length === 0) {
+        core.info('discrepancies: none');
+        return;
+    }
+    const rows = discrepancies.map((d) => `  ${d.check}  ${d.severity.padEnd(11)}  ${d.summary}`);
+    core.info(`discrepancies (${discrepancies.length}):\n${rows.join('\n')}`);
+    for (const d of discrepancies.slice(0, MAX_ANNOTATIONS)) {
+        const message = `${d.check}: ${d.summary}`;
+        if (d.severity === 'fail')
+            core.error(message, { title: 'Merge-Evidence Gate' });
+        else if (d.severity === 'needs-human')
+            core.warning(message, { title: 'Merge-Evidence Gate' });
+        else
+            core.notice(message, { title: 'Merge-Evidence Gate' });
+    }
+    if (discrepancies.length > MAX_ANNOTATIONS) {
+        core.info(`… ${discrepancies.length - MAX_ANNOTATIONS} further discrepancies on the receipt`);
+    }
+}
+/** Upload `receipt.json` so the full evidence outlives the log retention. */
+async function uploadReceipt(receiptPath, rootDir) {
+    try {
+        const client = new artifact_1.DefaultArtifactClient();
+        await client.uploadArtifact(ARTIFACT_NAME, [receiptPath], rootDir);
+        core.info(`artifact: uploaded ${ARTIFACT_NAME}`);
+    }
+    catch (err) {
+        core.warning(`artifact: could not upload ${ARTIFACT_NAME} (${err instanceof Error ? err.message : String(err)})`);
+    }
+}
+/** Post or update the receipt comment; a read-only token is a warning, not a failure. */
+async function publishComment(octokit, ref, prNumber, marker, markdown) {
+    if (octokit === undefined) {
+        core.warning('comment: no github-token available — skipping the receipt comment');
+        return;
+    }
+    const result = await (0, github_js_1.upsertStickyComment)(octokit, ref, prNumber, marker, markdown);
+    if (result.action === 'failed') {
+        const reason = result.permissionDenied === true
+            ? 'the token cannot write comments (expected on a fork PR) — the receipt is still in the job summary and artifact'
+            : result.error ?? 'unknown error';
+        core.warning(`comment: ${reason}`);
+        return;
+    }
+    core.info(`comment: ${result.action}${result.url === undefined ? '' : ` ${result.url}`}`);
+}
+/** Set the three action outputs in one place, so every exit path agrees. */
+function setOutputs(verdict, discrepancies, receiptPath) {
+    core.setOutput('verdict', verdict);
+    core.setOutput('discrepancies', String(discrepancies));
+    core.setOutput('receipt-path', receiptPath);
+}
+/** Translate the verdict into the job's exit status. */
+function applyVerdict(verdict, failOn, title) {
+    if (verdict === 'FAIL') {
+        core.setFailed(title);
+        return;
+    }
+    if (verdict === 'NEEDS_HUMAN') {
+        if (failOn === 'needs-human')
+            core.setFailed(title);
+        else
+            core.warning(`${title} — a human should look at this before merging`);
+        return;
+    }
+    core.info(title);
+}
+// ---------------------------------------------------------------------------
+// Orchestration
+// ---------------------------------------------------------------------------
+async function run() {
+    const inputs = readInputs();
+    const workspace = process.env['GITHUB_WORKSPACE'] ?? process.cwd();
+    const workDir = (0, node_path_1.resolve)(workspace, inputs.workingDirectory);
+    if (!GATE_EVENTS.has(github.context.eventName)) {
+        core.notice(`merge-evidence-gate: nothing to do on '${github.context.eventName}' — the gate runs on pull_request, pull_request_target and merge_group.`);
+        setOutputs('NEUTRAL', 0, '');
+        return;
+    }
+    const ref = { owner: github.context.repo.owner, repo: github.context.repo.repo };
+    const repoFullName = `${ref.owner}/${ref.repo}`;
+    const pr = readPullRequest(repoFullName);
+    if (pr === undefined) {
+        core.notice('merge-evidence-gate: this event carries no pull request — skipping.');
+        setOutputs('NEUTRAL', 0, '');
+        return;
+    }
+    const octokit = inputs.token === '' ? undefined : github.getOctokit(inputs.token);
+    if (octokit !== undefined) {
+        const commits = await (0, github_js_1.listCommitMessages)(octokit, (0, github_js_1.parseRepo)(repoFullName), pr.number);
+        if (commits.error !== undefined) {
+            core.warning(`commits: could not list this PR's commits (${commits.error}) — co-author trailers were not read`);
+        }
+        pr.commitMessages = commits.messages;
+    }
+    // The policy is read before the agent gate so a repository can turn
+    // `agents-only` off (or on) in one place instead of in every workflow file.
+    const policy = (0, pipeline_js_1.loadPolicy)(workDir, inputs.policyFile);
+    const result = await (0, pipeline_js_1.evaluate)({
+        workDir,
+        pr,
+        policy,
+        testCommand: inputs.testCommand,
+        ...(inputs.agentsOnly === undefined ? {} : { agentsOnly: inputs.agentsOnly }),
+    });
+    if (result.skipped === 'not-agent') {
+        setOutputs('NEUTRAL', 0, '');
+        await core.summary
+            .addRaw('**Merge-Evidence Gate — NEUTRAL** · skipped: not an agent PR', true)
+            .write();
+        return;
+    }
+    const { receipt, rendered, receiptJson, verdict, discrepancies } = result;
+    if (receipt === undefined || rendered === undefined || receiptJson === undefined) {
+        // Unreachable: `evaluate` omits these only on the skip handled above.
+        throw new Error('the pipeline returned no receipt');
+    }
+    const receiptPath = (0, node_path_1.join)(workspace, 'receipt.json');
+    (0, pipeline_js_1.writeSafely)(receiptPath, receiptJson);
+    setOutputs(verdict, discrepancies.length, receiptPath);
+    annotate(discrepancies);
+    if (inputs.uploadReceipt)
+        await uploadReceipt(receiptPath, workspace);
+    try {
+        await core.summary.addRaw(rendered.markdown, true).write();
+    }
+    catch (err) {
+        core.warning(`summary: could not write the job summary (${err instanceof Error ? err.message : String(err)})`);
+    }
+    if (inputs.comment) {
+        await publishComment(octokit, ref, pr.number, rendered.marker, rendered.markdown);
+    }
+    applyVerdict(verdict, inputs.failOn, rendered.title);
+}
+run().catch((err) => {
+    // Reaching here means the gate itself broke, not that the PR is bad. Say so
+    // plainly: a plumbing failure that reads like a verdict is worse than none.
+    core.setFailed(`merge-evidence-gate failed before reaching a verdict: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+});
+
+
+/***/ }),
+
+/***/ 15165:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.EMPTY_TOTALS = exports.RUN_LOG = void 0;
+exports.signalOf = signalOf;
+exports.mergedEnv = mergedEnv;
+exports.execCapture = execCapture;
+exports.git = git;
+exports.shell = shell;
+exports.loadPolicy = loadPolicy;
+exports.ensureHeadCheckout = ensureHeadCheckout;
+exports.installPlan = installPlan;
+exports.installDependencies = installDependencies;
+exports.parseReport = parseReport;
+exports.withoutInstallSteps = withoutInstallSteps;
+exports.totalsOf = totalsOf;
+exports.findNestedReports = findNestedReports;
+exports.runTests = runTests;
+exports.writeSafely = writeSafely;
+exports.collectDiff = collectDiff;
+exports.changedFiles = changedFiles;
+exports.evaluate = evaluate;
+exports.installOnly = installOnly;
+/**
+ * The Merge-Evidence pipeline, with no GitHub in it.
+ *
+ * Everything between "here is a pull request and a checkout" and "here is a
+ * receipt" lives here: read the policy, move the checkout to the head commit,
+ * install from the lockfile, re-run the repository's own tests with a
+ * machine-readable reporter, diff base against head, extract the claims from the
+ * PR body, reconcile the three and render the comment.
+ *
+ * Two front-ends call `evaluate`: the GitHub Action (`src/main.ts`), which adds
+ * the event wiring, outputs, annotations, artifact and sticky comment; and the
+ * offline CLI (`src/cli.ts`), which takes the pull-request facts as arguments
+ * and writes files. Because the second one runs on a laptop or inside a
+ * network-less container, nothing in this module may import `@actions/github` or
+ * `@actions/artifact` — `@actions/core` (whose `info` prints to stdout off a
+ * runner) and `@actions/exec` are fine.
+ *
+ * The rules from the Action apply here too: the verdict is the only thing that
+ * may fail a run, and a claim the gate could not verify is reported, never
+ * counted against the PR.
+ */
+const node_fs_1 = __nccwpck_require__(73024);
+const node_path_1 = __nccwpck_require__(76760);
+const core = __importStar(__nccwpck_require__(37484));
+const exec = __importStar(__nccwpck_require__(95236));
+const env_js_1 = __nccwpck_require__(89069);
+const index_js_1 = __nccwpck_require__(43217);
+const index_js_2 = __nccwpck_require__(2899);
+const index_js_3 = __nccwpck_require__(876);
+const index_js_4 = __nccwpck_require__(94375);
+/** Where the raw combined stdout/stderr of the test run is kept. */
+exports.RUN_LOG = `${index_js_4.REPORT_DIR}/run.log`;
+exports.EMPTY_TOTALS = {
+    run: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    retried: 0,
+};
+/** Signal names by the exit status a POSIX shell reports for a child killed by that signal. */
+const SIGNAL_BY_EXIT = new Map([
+    [129, 'SIGHUP'],
+    [130, 'SIGINT'],
+    [131, 'SIGQUIT'],
+    [132, 'SIGILL'],
+    [134, 'SIGABRT'],
+    [135, 'SIGBUS'],
+    [136, 'SIGFPE'],
+    [137, 'SIGKILL'],
+    [139, 'SIGSEGV'],
+    [143, 'SIGTERM'],
+]);
+/**
+ * The notice a shell prints when a child dies by signal — bash's
+ * `bash: line 1:  1234 Killed  pnpm test`, sh's bare `Killed` — mapped to the
+ * signal. Only consulted when the exit status already says 128 + n, so a test
+ * that merely prints "Killed" on a normal exit is never mistaken for a kill.
+ */
+const SHELL_SIGNAL_NOTICE = /(?:^|\n)(?:[^\n:]*:\s*)?(?:line \d+:\s*)?(?:\d+\s+)?(Killed|Terminated|Segmentation fault|Aborted|Hangup|Illegal instruction|Bus error|Floating point exception)(?:\s|$)/;
+const SIGNAL_BY_NOTICE = new Map([
+    ['Killed', 'SIGKILL'],
+    ['Terminated', 'SIGTERM'],
+    ['Segmentation fault', 'SIGSEGV'],
+    ['Aborted', 'SIGABRT'],
+    ['Hangup', 'SIGHUP'],
+    ['Illegal instruction', 'SIGILL'],
+    ['Bus error', 'SIGBUS'],
+    ['Floating point exception', 'SIGFPE'],
+]);
+/**
+ * The signal a test run died by, when the evidence says it did: the process
+ * itself was signalled (no exit status at all), or the shell reported 128 + n
+ * AND printed its kill notice. A bare 128 + n with no notice is left alone —
+ * mocha exits with its failure count, so 130 there is 130 failures.
+ */
+function signalOf(result) {
+    if (result.signal !== undefined)
+        return result.signal;
+    if (result.code < 128)
+        return undefined;
+    const notice = SHELL_SIGNAL_NOTICE.exec(result.stderr)?.[1];
+    if (notice === undefined)
+        return undefined;
+    return SIGNAL_BY_NOTICE.get(notice) ?? SIGNAL_BY_EXIT.get(result.code) ?? 'unknown';
+}
+/** Environment for the test run: the runner's own, plus the reporter overlay. */
+function mergedEnv(overlay) {
+    const env = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined)
+            env[key] = value;
+    }
+    return { ...env, ...overlay };
+}
+/**
+ * Run `commandLine` and capture both streams. Never rejects: a command that
+ * cannot even be spawned comes back as code 127 with the reason on stderr, so
+ * every caller handles one shape.
+ */
+async function execCapture(commandLine, args, options) {
+    let stdout = '';
+    let stderr = '';
+    try {
+        // @actions/exec types the result as a number, but a process that dies by
+        // signal has no exit status: Node reports null and the value comes through
+        // as-is. Record it as "killed by a signal we could not name" rather than
+        // letting `null` reach the receipt.
+        const code = (await exec.exec(commandLine, args, {
+            cwd: options.cwd,
+            ...(options.env === undefined ? {} : { env: options.env }),
+            ignoreReturnCode: true,
+            silent: options.silent ?? false,
+            listeners: {
+                stdout: (data) => {
+                    stdout += data.toString();
+                },
+                stderr: (data) => {
+                    stderr += data.toString();
+                },
+            },
+        }));
+        if (code === null || code === undefined)
+            return { code: 128, stdout, stderr, signal: 'unknown' };
+        return { code, stdout, stderr };
+    }
+    catch (err) {
+        return { code: 127, stdout, stderr: `${stderr}${err instanceof Error ? err.message : String(err)}` };
+    }
+}
+/** `git …` in `cwd`, quietly — git chatter is noise unless something failed. */
+async function git(cwd, ...args) {
+    return execCapture('git', args, { cwd, silent: true });
+}
+/**
+ * Run a shell command line the way the repository's own CI would.
+ *
+ * Detected commands are shell text (`npm test -- --reporter=json`,
+ * `make test`, occasionally with `&&`), so they go through a shell rather than
+ * `exec`'s argv splitter, which does not understand operators.
+ */
+async function shell(commandLine, options) {
+    if (process.platform === 'win32') {
+        return execCapture('pwsh', ['-NoProfile', '-Command', commandLine], options);
+    }
+    // A trailing `exit "$rc"` keeps bash as the parent instead of exec-ing a
+    // single simple command: bash then reports 128 + n and prints its kill
+    // notice when the runner dies by signal, which is how a kill is told apart
+    // from a runner that exits with a large status of its own.
+    return execCapture('bash', ['-c', `${commandLine}\nrc=$?; exit "$rc"`], options);
 }
 // ---------------------------------------------------------------------------
 // Policy
@@ -86055,37 +86610,144 @@ function parseReport(detected, workDir, stdout, notes) {
         core.info(`runner: ${detected.note}`);
         notes.push(`runner: ${detected.note}`);
     }
+    // An opaque family (plain cargo, make, an npm script hiding its runner) never
+    // has per-test output; its exit code is still the evidence for C1.
     if (index_js_4.adapters[detected.family] === undefined) {
-        return { tests: [], totals: EMPTY_TOTALS };
+        return { tests: [], totals: exports.EMPTY_TOTALS };
     }
     // Go streams its JSON events to stdout; every other supported runner writes a
     // report file. `runTests` has already teed stdout to `reportPath` for Go, so
-    // the file is tried first either way and stdout is the fallback.
-    const raw = (0, env_js_1.readReport)((0, node_path_1.join)(workDir, detected.reportPath)) ?? (stdout.trim() === '' ? undefined : stdout);
-    if (raw === undefined) {
-        const note = `runner: no machine-readable output at ${detected.reportPath}; per-test evidence is unavailable`;
-        core.warning(note);
-        notes.push(note);
-        return { tests: [], totals: EMPTY_TOTALS };
+    // the file is tried first either way and stdout is the fallback — for Go
+    // ONLY. For a file-based runner, plain stdout is never a report: feeding the
+    // console text to the adapter parses to zero tests silently, which reads
+    // like "nothing ran" instead of "the reporter produced nothing".
+    const raw = (0, env_js_1.readReport)((0, node_path_1.join)(workDir, detected.reportPath)) ??
+        (detected.family === 'go' && stdout.trim() !== '' ? stdout : undefined);
+    if (raw !== undefined) {
+        try {
+            return (0, index_js_4.normalize)(detected.family, raw);
+        }
+        catch (err) {
+            const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
+            core.warning(note);
+            notes.push(note);
+            return { tests: [], totals: exports.EMPTY_TOTALS, reportMissing: true };
+        }
     }
-    try {
-        return (0, index_js_4.normalize)(detected.family, raw);
+    // Monorepos: `pnpm test` at the root fans out to every workspace package, and
+    // each package's runner writes the report relative to ITS directory. Gather
+    // every report with the expected name below the work dir and merge them —
+    // the executed set is the union, which is exactly what ran.
+    const nested = findNestedReports(workDir, detected.reportPath);
+    if (nested.length > 0) {
+        const merged = [];
+        let parsed = 0;
+        for (const path of nested) {
+            const text = (0, env_js_1.readReport)(path);
+            if (text === undefined)
+                continue;
+            try {
+                merged.push(...(0, index_js_4.normalize)(detected.family, text).tests);
+                parsed++;
+            }
+            catch {
+                // one unreadable package report must not hide the others
+            }
+        }
+        if (parsed > 0) {
+            const note = `runner: merged ${parsed} per-package report(s) found below the work dir (monorepo)`;
+            core.info(note);
+            notes.push(note);
+            return { tests: merged, totals: totalsOf(merged) };
+        }
     }
-    catch (err) {
-        const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
-        core.warning(note);
-        notes.push(note);
-        return { tests: [], totals: EMPTY_TOTALS };
+    // The reporter never wrote: killed, or crashed before the report. This is the
+    // one case with no evidence at all — jest/vitest/pytest all write a report
+    // even when the suite fails to load, and that report IS evidence.
+    const note = `runner: no machine-readable output at ${detected.reportPath}; per-test evidence is unavailable`;
+    core.warning(note);
+    notes.push(note);
+    return { tests: [], totals: exports.EMPTY_TOTALS, reportMissing: true };
+}
+/**
+ * A claimed command chain without its install steps.
+ *
+ * Agents write "`pnpm install && pnpm test`"; the gate has already done a
+ * frozen install, so re-running one is redundant online and fatal offline
+ * (pnpm would sit retrying against a dead network). Segments joined by `&&`
+ * or `;` that are package-manager installs are dropped; the rest is kept in
+ * order. Returns '' when nothing runnable remains.
+ */
+function withoutInstallSteps(command) {
+    const install = /^(?:cd\s+\S+\s*&&\s*)?(?:(?:pnpm|npm|yarn|bun)\s+(?:i|install|ci|add)\b|uv\s+(?:sync|pip)\b|pip3?\s+install\b|poetry\s+install\b|go\s+mod\s+(?:download|tidy)\b|cargo\s+fetch\b|bundle\s+install\b)/;
+    return command
+        .split(/\s*(?:&&|;)\s*/)
+        .map((s) => s.trim())
+        .filter((s) => s !== '' && !install.test(s))
+        .join(' && ');
+}
+/** Totals over an executed-test list (the same arithmetic the adapters use). */
+function totalsOf(tests) {
+    const totals = { ...exports.EMPTY_TOTALS };
+    for (const t of tests) {
+        totals.run++;
+        if (t.status === 'passed')
+            totals.passed++;
+        else if (t.status === 'failed')
+            totals.failed++;
+        else
+            totals.skipped++;
+        if ((t.invocations ?? 1) > 1)
+            totals.retried++;
     }
+    return totals;
+}
+/**
+ * Every file below `workDir` whose path ends with the report's relative path
+ * (e.g. `.merge-evidence/vitest-results.json`), skipping dependency and build
+ * trees. Bounded depth keeps this cheap even on very large checkouts.
+ */
+function findNestedReports(workDir, reportPath, maxDepth = 6) {
+    const wanted = reportPath.split('/').filter((p) => p !== '' && p !== '.');
+    const found = [];
+    const skip = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.venv', 'venv', '.pnpm-store', 'coverage']);
+    const walk = (dir, depth) => {
+        if (depth > maxDepth)
+            return;
+        let entries;
+        try {
+            entries = (0, node_fs_1.readdirSync)(dir, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (!entry.isDirectory() || skip.has(entry.name))
+                continue;
+            const sub = (0, node_path_1.join)(dir, entry.name);
+            const candidate = (0, node_path_1.join)(sub, ...wanted);
+            // Only reports below the root count — the root one was already tried.
+            if (sub !== workDir && (0, node_fs_1.existsSync)(candidate))
+                found.push(candidate);
+            walk(sub, depth + 1);
+        }
+    };
+    walk(workDir, 0);
+    return found.sort();
 }
 /**
  * The clean re-run: install, execute the detected command with a
  * machine-readable reporter, and record exactly what ran.
  */
-async function runTests(detected, workDir, files, notes) {
+async function runTests(detected, workDir, files, notes, options = {}) {
     const env = mergedEnv(detected.env);
     (0, node_fs_1.mkdirSync)((0, node_path_1.join)(workDir, index_js_4.REPORT_DIR), { recursive: true });
-    await installDependencies(workDir, files, env, notes);
+    // The offline CLI can be handed a container whose dependencies are already in
+    // place (installed while the network was still up); re-running the install
+    // there would fail, not inform.
+    if (options.skipInstall !== true) {
+        await installDependencies(workDir, files, env, notes);
+    }
     core.info(`run: ${detected.command}`);
     const started = Date.now();
     const result = await shell(detected.command, { cwd: workDir, env });
@@ -86093,12 +86755,18 @@ async function runTests(detected, workDir, files, notes) {
     core.info(`run: exit ${result.code} in ${Math.round(durationMs / 1000)}s`);
     // Keep the raw log next to the report so a reader can audit the reporter's
     // summary against the runner's own words.
-    writeSafely((0, node_path_1.join)(workDir, RUN_LOG), `${result.stdout}\n${result.stderr}`);
+    writeSafely((0, node_path_1.join)(workDir, exports.RUN_LOG), `${result.stdout}\n${result.stderr}`);
     if (detected.family === 'go') {
         // Go's `-json` stream is stdout; tee it to the report path the adapter reads.
         writeSafely((0, node_path_1.join)(workDir, detected.reportPath), result.stdout);
     }
-    const { tests, totals } = parseReport(detected, workDir, result.stdout, notes);
+    const { tests, totals, reportMissing } = parseReport(detected, workDir, result.stdout, notes);
+    const signal = signalOf(result);
+    if (signal !== undefined) {
+        const note = `runner: the test process died by ${signal} (exit ${result.code}); no evidence about the PR`;
+        core.warning(note);
+        notes.push(note);
+    }
     return {
         command: detected.command,
         runner: detected.family,
@@ -86108,6 +86776,8 @@ async function runTests(detected, workDir, files, notes) {
         totals,
         tests,
         reportPath: detected.reportPath,
+        ...(reportMissing === true ? { reportMissing: true } : {}),
+        ...(signal === undefined ? {} : { signal }),
     };
 }
 /** Write a file, turning any filesystem problem into a warning. */
@@ -86132,7 +86802,12 @@ function writeSafely(path, contents) {
 async function collectDiff(workDir, pr, policy, notes) {
     const files = await changedFiles(workDir, pr, notes);
     core.info(`diff: ${files.length} changed file(s)`);
-    return (0, index_js_2.analyzeDiff)(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow });
+    return {
+        ...(0, index_js_2.analyzeDiff)(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
+        // The raw count survives scope filtering, so a check can tell "nothing
+        // changed / base not comparable" apart from "only allow-listed paths changed".
+        fileCount: files.length,
+    };
 }
 async function changedFiles(workDir, pr, notes) {
     if (pr.baseSha === '')
@@ -86158,129 +86833,51 @@ async function changedFiles(workDir, pr, notes) {
     notes.push(note);
     return [];
 }
-// ---------------------------------------------------------------------------
-// Publishing
-// ---------------------------------------------------------------------------
-/** Emit one annotation per discrepancy, capped, plus a compact table in the log. */
-function annotate(discrepancies) {
-    if (discrepancies.length === 0) {
-        core.info('discrepancies: none');
-        return;
-    }
-    const rows = discrepancies.map((d) => `  ${d.check}  ${d.severity.padEnd(11)}  ${d.summary}`);
-    core.info(`discrepancies (${discrepancies.length}):\n${rows.join('\n')}`);
-    for (const d of discrepancies.slice(0, MAX_ANNOTATIONS)) {
-        const message = `${d.check}: ${d.summary}`;
-        if (d.severity === 'fail')
-            core.error(message, { title: 'Merge-Evidence Gate' });
-        else if (d.severity === 'needs-human')
-            core.warning(message, { title: 'Merge-Evidence Gate' });
-        else
-            core.notice(message, { title: 'Merge-Evidence Gate' });
-    }
-    if (discrepancies.length > MAX_ANNOTATIONS) {
-        core.info(`… ${discrepancies.length - MAX_ANNOTATIONS} further discrepancies on the receipt`);
-    }
-}
-/** Upload `receipt.json` so the full evidence outlives the log retention. */
-async function uploadReceipt(receiptPath, rootDir) {
-    try {
-        const client = new artifact_1.DefaultArtifactClient();
-        await client.uploadArtifact(ARTIFACT_NAME, [receiptPath], rootDir);
-        core.info(`artifact: uploaded ${ARTIFACT_NAME}`);
-    }
-    catch (err) {
-        core.warning(`artifact: could not upload ${ARTIFACT_NAME} (${err instanceof Error ? err.message : String(err)})`);
-    }
-}
-/** Post or update the receipt comment; a read-only token is a warning, not a failure. */
-async function publishComment(octokit, ref, prNumber, marker, markdown) {
-    if (octokit === undefined) {
-        core.warning('comment: no github-token available — skipping the receipt comment');
-        return;
-    }
-    const result = await (0, github_js_1.upsertStickyComment)(octokit, ref, prNumber, marker, markdown);
-    if (result.action === 'failed') {
-        const reason = result.permissionDenied === true
-            ? 'the token cannot write comments (expected on a fork PR) — the receipt is still in the job summary and artifact'
-            : result.error ?? 'unknown error';
-        core.warning(`comment: ${reason}`);
-        return;
-    }
-    core.info(`comment: ${result.action}${result.url === undefined ? '' : ` ${result.url}`}`);
-}
-/** Set the three action outputs in one place, so every exit path agrees. */
-function setOutputs(verdict, discrepancies, receiptPath) {
-    core.setOutput('verdict', verdict);
-    core.setOutput('discrepancies', String(discrepancies));
-    core.setOutput('receipt-path', receiptPath);
-}
-/** Translate the verdict into the job's exit status. */
-function applyVerdict(verdict, failOn, title) {
-    if (verdict === 'FAIL') {
-        core.setFailed(title);
-        return;
-    }
-    if (verdict === 'NEEDS_HUMAN') {
-        if (failOn === 'needs-human')
-            core.setFailed(title);
-        else
-            core.warning(`${title} — a human should look at this before merging`);
-        return;
-    }
-    core.info(title);
-}
-// ---------------------------------------------------------------------------
-// Orchestration
-// ---------------------------------------------------------------------------
-async function run() {
-    const inputs = readInputs();
-    const workspace = process.env['GITHUB_WORKSPACE'] ?? process.cwd();
-    const workDir = (0, node_path_1.resolve)(workspace, inputs.workingDirectory);
-    if (!GATE_EVENTS.has(github.context.eventName)) {
-        core.notice(`merge-evidence-gate: nothing to do on '${github.context.eventName}' — the gate runs on pull_request, pull_request_target and merge_group.`);
-        setOutputs('NEUTRAL', 0, '');
-        return;
-    }
-    const ref = { owner: github.context.repo.owner, repo: github.context.repo.repo };
-    const repoFullName = `${ref.owner}/${ref.repo}`;
-    const pr = readPullRequest(repoFullName);
-    if (pr === undefined) {
-        core.notice('merge-evidence-gate: this event carries no pull request — skipping.');
-        setOutputs('NEUTRAL', 0, '');
-        return;
-    }
-    const octokit = inputs.token === '' ? undefined : github.getOctokit(inputs.token);
-    if (octokit !== undefined) {
-        const commits = await (0, github_js_1.listCommitMessages)(octokit, (0, github_js_1.parseRepo)(repoFullName), pr.number);
-        if (commits.error !== undefined) {
-            core.warning(`commits: could not list this PR's commits (${commits.error}) — co-author trailers were not read`);
-        }
-        pr.commitMessages = commits.messages;
-    }
-    // The policy is read before the agent gate so a repository can turn
-    // `agents-only` off (or on) in one place instead of in every workflow file.
-    const policy = loadPolicy(workDir, inputs.policyFile);
-    const agentsOnly = inputs.agentsOnly ?? policy.agentsOnly ?? true;
+/**
+ * Turn a pull request and a checkout into a verdict, a receipt and a rendered
+ * comment.
+ *
+ * This is the whole gate: agent detection, the clean re-run, the diff, the
+ * claims, the reconciliation. It publishes nothing and sets no exit status —
+ * that is the caller's business, and it is why the Action and the CLI can share
+ * every line of it.
+ */
+async function evaluate(opts) {
+    const { workDir, pr, policy } = opts;
+    const agentsOnly = opts.agentsOnly ?? policy.agentsOnly ?? true;
     const agent = (0, index_js_1.detectAgent)(pr);
     core.info(`agent: ${agent.detected}${agent.signals.length === 0 ? '' : ` (${agent.signals.join(', ')})`}`);
     if (agentsOnly && !agent.isAgent) {
         core.info('skipped: not an agent PR');
-        setOutputs('NEUTRAL', 0, '');
-        await core.summary
-            .addRaw('**Merge-Evidence Gate — NEUTRAL** · skipped: not an agent PR', true)
-            .write();
-        return;
+        return {
+            skipped: 'not-agent',
+            agent,
+            discrepancies: [],
+            verdict: 'NEUTRAL',
+            unverifiable: [],
+            notes: [],
+        };
     }
     /** Facts the gate could not establish; shown on the comment, never counted against the PR. */
     const notes = [];
     const files = (0, env_js_1.readManifests)(workDir);
+    const claims = (0, index_js_1.extractClaims)(pr);
+    core.info(`claims: ${claims.length} extracted from the PR body`);
+    let explicit = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
+    if (explicit === undefined && opts.preferClaimedCommand === true) {
+        const claimed = claims.find((c) => c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown');
+        if (claimed !== undefined) {
+            const stripped = withoutInstallSteps(claimed.parsed.raw);
+            if (stripped !== '') {
+                explicit = stripped;
+                const note = `runner: running the command the PR claimed (${claimed.id}): \`${explicit}\``;
+                core.info(note);
+                notes.push(note);
+            }
+        }
+    }
     const detected = (0, index_js_4.detectTestCommand)({
-        ...(inputs.testCommand === ''
-            ? policy.testCommand === undefined
-                ? {}
-                : { explicit: policy.testCommand }
-            : { explicit: inputs.testCommand }),
+        ...(explicit === undefined ? {} : { explicit }),
         files,
     });
     let observed;
@@ -86294,43 +86891,44 @@ async function run() {
             exitCode: 0,
             durationMs: 0,
             toolchain: (0, env_js_1.probeToolchain)(workDir),
-            totals: EMPTY_TOTALS,
+            totals: exports.EMPTY_TOTALS,
             tests: [],
             noTestCommand: true,
         };
     }
     else {
         await ensureHeadCheckout(workDir, pr.headSha, notes);
-        observed = await runTests(detected, workDir, files, notes);
+        observed = await runTests(detected, workDir, files, notes, {
+            ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
+        });
     }
     const diff = await collectDiff(workDir, pr, policy, notes);
-    const claims = (0, index_js_1.extractClaims)(pr);
-    core.info(`claims: ${claims.length} extracted from the PR body`);
     const { discrepancies, verdict, unverifiable } = (0, index_js_3.reconcile)({ pr, claims, observed, diff, policy });
     const receipt = (0, index_js_3.buildReceipt)({ pr, agent, claims, observed, diff, discrepancies, verdict, policy });
     const rendered = (0, index_js_3.renderComment)(receipt, { unverifiable: [...unverifiable, ...notes] });
-    const receiptPath = (0, node_path_1.join)(workspace, 'receipt.json');
-    writeSafely(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
-    setOutputs(verdict, discrepancies.length, receiptPath);
-    annotate(discrepancies);
-    if (inputs.uploadReceipt)
-        await uploadReceipt(receiptPath, workspace);
-    try {
-        await core.summary.addRaw(rendered.markdown, true).write();
-    }
-    catch (err) {
-        core.warning(`summary: could not write the job summary (${err instanceof Error ? err.message : String(err)})`);
-    }
-    if (inputs.comment) {
-        await publishComment(octokit, ref, pr.number, rendered.marker, rendered.markdown);
-    }
-    applyVerdict(verdict, inputs.failOn, rendered.title);
+    return {
+        agent,
+        receipt,
+        rendered,
+        discrepancies,
+        verdict,
+        unverifiable,
+        notes,
+        receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
+    };
 }
-run().catch((err) => {
-    // Reaching here means the gate itself broke, not that the PR is bad. Say so
-    // plainly: a plumbing failure that reads like a verdict is worse than none.
-    core.setFailed(`merge-evidence-gate failed before reaching a verdict: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-});
+/**
+ * Move the checkout to the head commit and install its dependencies — nothing
+ * else.
+ *
+ * A study harness that runs the gate with the network off needs a moment when
+ * the network is still on: this is that moment, run once per repository before
+ * the container is sealed.
+ */
+async function installOnly(workDir, pr, notes) {
+    await ensureHeadCheckout(workDir, pr.headSha, notes);
+    await installDependencies(workDir, (0, env_js_1.readManifests)(workDir), mergedEnv({}), notes);
+}
 
 
 /***/ }),
