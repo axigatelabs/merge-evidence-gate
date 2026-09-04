@@ -18,10 +18,13 @@ OUT="$HERE/data/${REPO/\//__}"; mkdir -p "$OUT"
 : > "$OUT/prs.jsonl"
 
 echo "search: is:pr repo:$REPO author:app/$APP created:>$SINCE (limit $LIMIT)" >&2
+# One page (max 100) is plenty for a batch; `--paginate` + `head` under pipefail
+# closed the pipe early and yielded an empty list on the first run.
+PAGE=$(( LIMIT < 100 ? LIMIT : 100 ))
 numbers=$(gh api -X GET search/issues \
   -f q="is:pr repo:$REPO author:app/$APP created:>$SINCE" \
-  -f sort=created -f order=desc -f per_page=100 --paginate \
-  -q '.items[].number' | head -n "$LIMIT")
+  -f sort=created -f order=desc -f per_page="$PAGE" \
+  -q '.items[].number')
 
 n=0
 for num in $numbers; do
