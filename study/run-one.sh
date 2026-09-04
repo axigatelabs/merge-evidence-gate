@@ -33,6 +33,12 @@ CACHE_ARGS=(
   # corepack downloads the package manager version pinned in package.json
   # (`packageManager`); phase 2 runs offline, so that download must persist.
   -v meg-corepack:/caches/corepack -e COREPACK_HOME=/caches/corepack
+  # pnpm reads store-dir from npmrc, not from the env; the pre-step writes it.
+  -e NPM_CONFIG_USERCONFIG=/caches/npmrc
+  # The bind-mounted /work shows up root-owned inside the container while the
+  # clone is node-owned; git then refuses the repo as "dubious ownership".
+  # The sandbox is single-tenant per PR, so trusting every path is safe here.
+  -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'
   -e npm_config_fetch_timeout=180000 -e npm_config_fetch_retries=5 -e npm_config_fetch_retry_maxtimeout=120000
 )
 
@@ -53,9 +59,9 @@ cp "$DATA/$NUM.body.md" "$WORK/body.md"; cp "$DATA/$NUM.commits.txt" "$WORK/comm
 [ -f "$GATE/dist/cli/index.js" ] || { echo "gate CLI not built: run 'npm run build' in $GATE" >&2; exit 2; }
 
 echo "[$KEY#$NUM] phase 1: clone @ ${HEAD:0:7} (base ${BASE:0:7}) + install" >&2
-[ -d "$WORK/repo" ] && { docker run --rm -v "$WORK:/work" "$IMG" bash -c 'rm -rf /work/repo' >/dev/null 2>&1 || rm -rf "$WORK/repo"; }
+[ -d "$WORK/repo" ] && { docker run --rm --user root -v "$WORK:/work" "$IMG" bash -c 'rm -rf /work/repo /work/.pnpm-store' >/dev/null 2>&1 || rm -rf "$WORK/repo"; }
 # Named volumes are created root-owned; the sandbox runs as `node` (uid 1000).
-docker run --rm --user root "${CACHE_ARGS[@]}" "$IMG" bash -c 'mkdir -p /caches/pnpm /caches/npm /caches/uv /caches/go /caches/corepack && chown -R 1000:1000 /caches' >/dev/null 2>&1 || true
+docker run --rm --user root "${CACHE_ARGS[@]}" "$IMG" bash -c 'mkdir -p /caches/pnpm /caches/npm /caches/uv /caches/go /caches/corepack && printf "store-dir=/caches/pnpm\ncache=/caches/npm\n" > /caches/npmrc && chown -R 1000:1000 /caches' >/dev/null 2>&1 || true
 docker run --rm --name "meg-$KEY-$NUM-p1" "${CACHE_ARGS[@]}" \
   -v "$WORK:/work" -v "$GATE:/gate:ro" "$IMG" bash -lc "
     set -e
@@ -89,7 +95,7 @@ if [ -f "$WORK/receipt.json" ]; then
   tail -1 "$WORK/phase2.log" | sed "s/^/[$KEY#$NUM] /" >&2
   # Reclaim disk (node_modules can be 300k files). Deleting through the
   # container is far faster than a host-side rm over the bind mount on macOS.
-  docker run --rm -v "$WORK:/work" "$IMG" bash -c 'rm -rf /work/repo' >/dev/null 2>&1 || rm -rf "$WORK/repo"
+  docker run --rm --user root -v "$WORK:/work" "$IMG" bash -c 'rm -rf /work/repo /work/.pnpm-store' >/dev/null 2>&1 || rm -rf "$WORK/repo"
 else
   echo "[$KEY#$NUM] NO RECEIPT — harness error, see $WORK/phase2.log" >&2; exit 1
 fi
