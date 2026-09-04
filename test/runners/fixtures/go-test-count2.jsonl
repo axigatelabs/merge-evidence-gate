@@ -1,0 +1,4 @@
+{"Time":"2026-09-04T18:22:00.100Z","Action":"run","Package":"github.com/acme/svc/pkg/flaky","Test":"TestSometimes"}
+{"Time":"2026-09-04T18:22:00.110Z","Action":"pass","Package":"github.com/acme/svc/pkg/flaky","Test":"TestSometimes","Elapsed":0.01}
+{"Time":"2026-09-04T18:22:00.111Z","Action":"run","Package":"github.com/acme/svc/pkg/flaky","Test":"TestSometimes"}
+{"Time":"2026-09-04T18:22:00.130Z","Action":"pass","Package":"github.com/acme/svc/pkg/flaky","Test":"TestSometimes","Elapsed":0.019}

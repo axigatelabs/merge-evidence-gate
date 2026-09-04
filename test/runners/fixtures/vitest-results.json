@@ -1,0 +1,47 @@
+{
+  "numTotalTestSuites": 1,
+  "numTotalTests": 3,
+  "numPassedTests": 2,
+  "numFailedTests": 1,
+  "numPendingTests": 0,
+  "startTime": 1788974500000,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["parseClaims"],
+          "fullName": "parseClaims extracts a backticked command",
+          "status": "passed",
+          "title": "extracts a backticked command",
+          "duration": 3.412,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": ["parseClaims"],
+          "fullName": "parseClaims counts checked boxes",
+          "status": "passed",
+          "title": "counts checked boxes",
+          "duration": 1.104,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": ["parseClaims"],
+          "fullName": "parseClaims records an unparseable caveat",
+          "status": "failed",
+          "title": "records an unparseable caveat",
+          "duration": 5.9,
+          "failureMessages": ["AssertionError: expected 1 to be 0"],
+          "meta": {}
+        }
+      ],
+      "startTime": 1788974500110,
+      "endTime": 1788974500131,
+      "status": "failed",
+      "message": "",
+      "name": "/home/runner/work/gate/test/claims/parse.test.ts"
+    }
+  ]
+}

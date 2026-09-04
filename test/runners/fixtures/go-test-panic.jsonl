@@ -1,0 +1,6 @@
+{"Time":"2026-09-04T18:21:00.100Z","Action":"start","Package":"github.com/acme/svc/pkg/queue"}
+{"Time":"2026-09-04T18:21:00.101Z","Action":"run","Package":"github.com/acme/svc/pkg/queue","Test":"TestDrain"}
+{"Time":"2026-09-04T18:21:00.140Z","Action":"pass","Package":"github.com/acme/svc/pkg/queue","Test":"TestDrain","Elapsed":0.039}
+{"Time":"2026-09-04T18:21:00.141Z","Action":"run","Package":"github.com/acme/svc/pkg/queue","Test":"TestEnqueueRace"}
+{"Time":"2026-09-04T18:21:00.142Z","Action":"output","Package":"github.com/acme/svc/pkg/queue","Test":"TestEnqueueRace","Output":"panic: send on closed channel [recovered]\n"}
+{"Time":"2026-09-04T18:21:00.143Z","Action":"fail","Package":"github.com/acme/svc/pkg/queue","Elapsed":0.05}
