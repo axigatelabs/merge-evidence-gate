@@ -1,0 +1,39 @@
+diff --git a/src/cart.js b/src/cart.js
+index 82d2f34..dc98ea8 100644
+--- a/src/cart.js
++++ b/src/cart.js
+@@ -13,6 +13,12 @@ export function applyDiscount(amount, percent) {
+   return amount - (amount * percent) / 100;
+ }
+ 
++/** Percentage discount for a known coupon code, or 0 when the code is unknown. */
++export function couponPercent(code) {
++  const coupons = { SAVE10: 10, HALF: 50 };
++  return coupons[code] ?? 0;
++}
++
+ /** Cart total: the subtotal with a percentage discount applied. */
+ export function total(items, percent = 0) {
+   return applyDiscount(subtotal(items), percent);
+diff --git a/test/cart.test.js b/test/cart.test.js
+index b0b7a19..4e515b1 100644
+--- a/test/cart.test.js
++++ b/test/cart.test.js
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from 'vitest';
+ 
+-import { applyDiscount, subtotal, total } from '../src/cart.js';
++import { applyDiscount, couponPercent, subtotal, total } from '../src/cart.js';
+ 
+ const CART = [
+   { price: 10, quantity: 2 },
+@@ -36,3 +36,9 @@ describe('total', () => {
+     expect(total(CART, 20)).toBe(20);
+   });
+ });
++
++describe('couponPercent', () => {
++  it('returns zero for an unknown code', () => {
++    expect(couponPercent('NOPE')).toBe(0);
++  });
++});
