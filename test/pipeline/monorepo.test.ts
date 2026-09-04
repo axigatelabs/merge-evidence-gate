@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_POLICY } from '../../src/core/reconcile/index.js';
 import type { ObservedRun, PullRequestFacts } from '../../src/core/types.js';
-import { evaluate, findNestedReports, totalsOf } from '../../src/pipeline.js';
+import { evaluate, findNestedReports, totalsOf, withoutInstallSteps } from '../../src/pipeline.js';
 
 describe('findNestedReports (monorepo per-package reports)', () => {
   it('finds every report with the expected relative path below the root, skipping dependency trees', () => {
@@ -30,6 +30,22 @@ describe('findNestedReports (monorepo per-package reports)', () => {
     const root = mkdtempSync(join(tmpdir(), 'meg-nested-empty-'));
     mkdirSync(join(root, 'packages/a'), { recursive: true });
     expect(findNestedReports(root, '.merge-evidence/jest-results.json')).toEqual([]);
+  });
+});
+
+describe('withoutInstallSteps', () => {
+  it('drops package-manager installs from a claimed chain and keeps the rest in order', () => {
+    expect(withoutInstallSteps('pnpm install && pnpm test')).toBe('pnpm test');
+    expect(withoutInstallSteps('npm ci; npm test -- --runInBand')).toBe('npm test -- --runInBand');
+    // a leading `cd` is not an install step — the test must still run there
+    expect(withoutInstallSteps('cd packages/core && pnpm i && pnpm test')).toBe('cd packages/core && pnpm test');
+    expect(withoutInstallSteps('uv sync && pytest -q && go mod download')).toBe('pytest -q');
+  });
+
+  it('leaves a plain test command alone and returns an empty string when only installs remain', () => {
+    expect(withoutInstallSteps('go test ./...')).toBe('go test ./...');
+    expect(withoutInstallSteps('pnpm install')).toBe('');
+    expect(withoutInstallSteps('npm ci && yarn install --immutable')).toBe('');
   });
 });
 

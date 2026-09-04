@@ -330,6 +330,25 @@ export function parseReport(
   return { tests: [], totals: EMPTY_TOTALS };
 }
 
+/**
+ * A claimed command chain without its install steps.
+ *
+ * Agents write "`pnpm install && pnpm test`"; the gate has already done a
+ * frozen install, so re-running one is redundant online and fatal offline
+ * (pnpm would sit retrying against a dead network). Segments joined by `&&`
+ * or `;` that are package-manager installs are dropped; the rest is kept in
+ * order. Returns '' when nothing runnable remains.
+ */
+export function withoutInstallSteps(command: string): string {
+  const install =
+    /^(?:cd\s+\S+\s*&&\s*)?(?:(?:pnpm|npm|yarn|bun)\s+(?:i|install|ci|add)\b|uv\s+(?:sync|pip)\b|pip3?\s+install\b|poetry\s+install\b|go\s+mod\s+(?:download|tidy)\b|cargo\s+fetch\b|bundle\s+install\b)/;
+  return command
+    .split(/\s*(?:&&|;)\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s !== '' && !install.test(s))
+    .join(' && ');
+}
+
 /** Totals over an executed-test list (the same arithmetic the adapters use). */
 export function totalsOf(tests: ObservedRun['tests']): ObservedRun['totals'] {
   const totals = { ...EMPTY_TOTALS };
@@ -567,10 +586,13 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
         c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown',
     );
     if (claimed !== undefined) {
-      explicit = claimed.parsed.raw;
-      const note = `runner: running the command the PR claimed (${claimed.id}): \`${explicit}\``;
-      core.info(note);
-      notes.push(note);
+      const stripped = withoutInstallSteps(claimed.parsed.raw);
+      if (stripped !== '') {
+        explicit = stripped;
+        const note = `runner: running the command the PR claimed (${claimed.id}): \`${explicit}\``;
+        core.info(note);
+        notes.push(note);
+      }
     }
   }
   const detected = detectTestCommand({

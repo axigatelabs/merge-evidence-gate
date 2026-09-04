@@ -76,8 +76,14 @@ docker run --rm --name "meg-$KEY-$NUM-p1" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/
     cd /work/repo
     git fetch -q --depth=1 origin $HEAD && git fetch -q --depth=1 origin $BASE
     git checkout -q $HEAD
-    # pnpm only honours store-dir from its own config (not the npm env vars).
+    # pnpm only honours settings from its own config (not the npm env vars).
+    # Large tarballs (onnxruntime, couchbase, turbo binaries) blow the 60 s
+    # default fetch timeout from inside Docker, so give fetches real room.
     pnpm config set store-dir /caches/pnpm >/dev/null 2>&1 || true
+    pnpm config set fetch-timeout 600000 >/dev/null 2>&1 || true
+    pnpm config set fetch-retries 5 >/dev/null 2>&1 || true
+    pnpm config set network-concurrency 6 >/dev/null 2>&1 || true
+    pnpm config set verify-deps-before-run false >/dev/null 2>&1 || true
     timeout $TIMEOUT node /gate/dist/cli/index.js --install-only --work /work/repo --head $HEAD --base $BASE --out /work/install.json || echo 'install phase ended non-zero (recorded)'
   " > "$WORK/phase1.log" 2>&1 || { echo "[$KEY#$NUM] phase 1 failed — see $WORK/phase1.log" >&2; exit 1; }
 
@@ -90,6 +96,12 @@ docker run --rm --network none --name "meg-$KEY-$NUM-p2" \
   -e MEG_TEST_CMD="$TEST_CMD" -e MEG_TIMEOUT="$TIMEOUT" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/repo" \
   -v "$WORK:/work" -v "$GATE:/gate:ro" "$IMG" bash -lc '
     cd /work/repo
+    # Offline phase: pnpm must never try to (re)install — pnpm 10+ can auto-run
+    # an install before a script when it thinks deps are stale, which would sit
+    # retrying against a dead network for the whole timeout.
+    pnpm config set store-dir /caches/pnpm >/dev/null 2>&1 || true
+    pnpm config set offline true >/dev/null 2>&1 || true
+    pnpm config set verify-deps-before-run false >/dev/null 2>&1 || true
     extra=(); [ -n "$MEG_TEST_CMD" ] && extra=(--test-command "$MEG_TEST_CMD")
     timeout "$MEG_TIMEOUT" node /gate/dist/cli/index.js --skip-install --work /work/repo \
       --repo "$MEG_REPO" --pr "$MEG_NUM" --head "$MEG_HEAD" --base "$MEG_BASE" --author "$MEG_AUTHOR" \
