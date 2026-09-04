@@ -26,4 +26,6 @@ jobs:
       - run: npm test -- --passWithNoTests
       - run: npm run build
       - name: Bundle is buildable and action.yml points at it
-        run: test -f dist/index.js && grep -q "main: 'dist/index.js'" action.yml
+        run: |
+          test -f dist/index.js
+          grep -q "main: 'dist/index.js'" action.yml
