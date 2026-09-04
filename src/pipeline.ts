@@ -19,7 +19,7 @@
  * may fail a run, and a claim the gate could not verify is reported, never
  * counted against the PR.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import * as core from '@actions/core';
@@ -287,21 +287,90 @@ export function parseReport(
   // report file. `runTests` has already teed stdout to `reportPath` for Go, so
   // the file is tried first either way and stdout is the fallback.
   const raw = readReport(join(workDir, detected.reportPath)) ?? (stdout.trim() === '' ? undefined : stdout);
-  if (raw === undefined) {
-    const note = `runner: no machine-readable output at ${detected.reportPath}; per-test evidence is unavailable`;
-    core.warning(note);
-    notes.push(note);
-    return { tests: [], totals: EMPTY_TOTALS };
+  if (raw !== undefined) {
+    try {
+      return normalize(detected.family, raw);
+    } catch (err) {
+      const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
+      core.warning(note);
+      notes.push(note);
+      return { tests: [], totals: EMPTY_TOTALS };
+    }
   }
 
-  try {
-    return normalize(detected.family, raw);
-  } catch (err) {
-    const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
-    core.warning(note);
-    notes.push(note);
-    return { tests: [], totals: EMPTY_TOTALS };
+  // Monorepos: `pnpm test` at the root fans out to every workspace package, and
+  // each package's runner writes the report relative to ITS directory. Gather
+  // every report with the expected name below the work dir and merge them —
+  // the executed set is the union, which is exactly what ran.
+  const nested = findNestedReports(workDir, detected.reportPath);
+  if (nested.length > 0) {
+    const merged: ObservedRun['tests'] = [];
+    let parsed = 0;
+    for (const path of nested) {
+      const text = readReport(path);
+      if (text === undefined) continue;
+      try {
+        merged.push(...normalize(detected.family, text).tests);
+        parsed++;
+      } catch {
+        // one unreadable package report must not hide the others
+      }
+    }
+    if (parsed > 0) {
+      const note = `runner: merged ${parsed} per-package report(s) found below the work dir (monorepo)`;
+      core.info(note);
+      notes.push(note);
+      return { tests: merged, totals: totalsOf(merged) };
+    }
   }
+
+  const note = `runner: no machine-readable output at ${detected.reportPath}; per-test evidence is unavailable`;
+  core.warning(note);
+  notes.push(note);
+  return { tests: [], totals: EMPTY_TOTALS };
+}
+
+/** Totals over an executed-test list (the same arithmetic the adapters use). */
+export function totalsOf(tests: ObservedRun['tests']): ObservedRun['totals'] {
+  const totals = { ...EMPTY_TOTALS };
+  for (const t of tests) {
+    totals.run++;
+    if (t.status === 'passed') totals.passed++;
+    else if (t.status === 'failed') totals.failed++;
+    else totals.skipped++;
+    if ((t.invocations ?? 1) > 1) totals.retried++;
+  }
+  return totals;
+}
+
+/**
+ * Every file below `workDir` whose path ends with the report's relative path
+ * (e.g. `.merge-evidence/vitest-results.json`), skipping dependency and build
+ * trees. Bounded depth keeps this cheap even on very large checkouts.
+ */
+export function findNestedReports(workDir: string, reportPath: string, maxDepth = 6): string[] {
+  const wanted = reportPath.split('/').filter((p) => p !== '' && p !== '.');
+  const found: string[] = [];
+  const skip = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.venv', 'venv', '.pnpm-store', 'coverage']);
+  const walk = (dir: string, depth: number): void => {
+    if (depth > maxDepth) return;
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || skip.has(entry.name)) continue;
+      const sub = join(dir, entry.name);
+      const candidate = join(sub, ...wanted);
+      // Only reports below the root count — the root one was already tried.
+      if (sub !== workDir && existsSync(candidate)) found.push(candidate);
+      walk(sub, depth + 1);
+    }
+  };
+  walk(workDir, 0);
+  return found.sort();
 }
 
 /**
@@ -429,6 +498,14 @@ export interface EvaluateOptions {
   agentsOnly?: boolean;
   /** The dependencies are already in place — do not run an install. */
   skipInstall?: boolean;
+  /**
+   * When no operator/policy command is given, run the test command the PR body
+   * itself claims (the first `command` claim with a known runner) instead of the
+   * repository's default. This is what C1 is really about — "did the command
+   * you said you ran actually pass?" — and in a monorepo it is also the only
+   * affordable choice: the root `pnpm test` fans out to every package.
+   */
+  preferClaimedCommand?: boolean;
 }
 
 export interface EvaluateResult {
@@ -480,7 +557,22 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
   const notes: string[] = [];
 
   const files = readManifests(workDir);
-  const explicit = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
+  const claims = extractClaims(pr);
+  core.info(`claims: ${claims.length} extracted from the PR body`);
+
+  let explicit = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
+  if (explicit === undefined && opts.preferClaimedCommand === true) {
+    const claimed = claims.find(
+      (c): c is typeof c & { parsed: { kind: 'command'; runner: string; raw: string } } =>
+        c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown',
+    );
+    if (claimed !== undefined) {
+      explicit = claimed.parsed.raw;
+      const note = `runner: running the command the PR claimed (${claimed.id}): \`${explicit}\``;
+      core.info(note);
+      notes.push(note);
+    }
+  }
   const detected = detectTestCommand({
     ...(explicit === undefined ? {} : { explicit }),
     files,
@@ -509,8 +601,6 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
   }
 
   const diff = await collectDiff(workDir, pr, policy, notes);
-  const claims = extractClaims(pr);
-  core.info(`claims: ${claims.length} extracted from the PR body`);
 
   const { discrepancies, verdict, unverifiable } = reconcile({ pr, claims, observed, diff, policy });
   const receipt = buildReceipt({ pr, agent, claims, observed, diff, discrepancies, verdict, policy });

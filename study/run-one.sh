@@ -76,6 +76,8 @@ docker run --rm --name "meg-$KEY-$NUM-p1" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/
     cd /work/repo
     git fetch -q --depth=1 origin $HEAD && git fetch -q --depth=1 origin $BASE
     git checkout -q $HEAD
+    # pnpm only honours store-dir from its own config (not the npm env vars).
+    pnpm config set store-dir /caches/pnpm >/dev/null 2>&1 || true
     timeout $TIMEOUT node /gate/dist/cli/index.js --install-only --work /work/repo --head $HEAD --base $BASE --out /work/install.json || echo 'install phase ended non-zero (recorded)'
   " > "$WORK/phase1.log" 2>&1 || { echo "[$KEY#$NUM] phase 1 failed — see $WORK/phase1.log" >&2; exit 1; }
 
@@ -93,7 +95,7 @@ docker run --rm --network none --name "meg-$KEY-$NUM-p2" \
       --repo "$MEG_REPO" --pr "$MEG_NUM" --head "$MEG_HEAD" --base "$MEG_BASE" --author "$MEG_AUTHOR" \
       --head-ref "$MEG_HREF" --base-ref "$MEG_BREF" --title "$MEG_TITLE" \
       --body-file /work/body.md --commits-file /work/commits.txt --agents-only false \
-      "${extra[@]}" --out /work/receipt.json --markdown /work/receipt.md
+      --prefer-claimed-command "${extra[@]}" --out /work/receipt.json --markdown /work/receipt.md
   ' > "$WORK/phase2.log" 2>&1 || true
 
 if [ -f "$WORK/receipt.json" ]; then

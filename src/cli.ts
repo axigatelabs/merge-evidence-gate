@@ -52,6 +52,9 @@ Behaviour:
   --agents-only <bool>     Only gate agent-authored PRs (default: true).
   --skip-install           Do not install dependencies; the checkout is ready.
   --install-only           Check out the head, install dependencies, and stop.
+  --prefer-claimed-command When no command is given, run the test command the PR
+                           body itself claims (first command claim with a known
+                           runner) instead of the repository default.
   --help                   Print this.
 `;
 
@@ -130,6 +133,7 @@ export async function main(argv: string[]): Promise<number> {
         markdown: { type: 'string' },
         'install-only': { type: 'boolean' },
         'skip-install': { type: 'boolean' },
+        'prefer-claimed-command': { type: 'boolean' },
         help: { type: 'boolean' },
       },
     });
@@ -198,6 +202,7 @@ export async function main(argv: string[]): Promise<number> {
       ...(values['test-command'] === undefined ? {} : { testCommand: values['test-command'] }),
       ...(agentsOnly === undefined ? {} : { agentsOnly }),
       ...(values['skip-install'] === true ? { skipInstall: true } : {}),
+      ...(values['prefer-claimed-command'] === true ? { preferClaimedCommand: true } : {}),
     });
 
     if (result.receiptJson !== undefined) writeFile(out, result.receiptJson);
