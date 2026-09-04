@@ -24,6 +24,12 @@ for (const key of repos) {
     try { receipt = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { continue; }
     try { meta = JSON.parse(readFileSync(join(dir, f.replace(/\.json$/, '.meta.json')), 'utf8')); } catch {}
     r.prs++;
+    // No per-test evidence (the run produced nothing machine-readable, or no
+    // test command exists) means the gate could not check the claims at all.
+    // Such a PR is INCONCLUSIVE — it is reported, but never counted as a PASS.
+    const o = receipt.observed ?? {};
+    const inconclusive = o.no_test_command === true || ((o.totals?.run ?? 0) === 0 && (o.exit_code ?? 0) !== 0);
+    if (inconclusive) { r.inconclusive = (r.inconclusive ?? 0) + 1; continue; }
     r.verdicts[receipt.verdict] = (r.verdicts[receipt.verdict] ?? 0) + 1;
     r.agents[receipt.agent?.detected ?? 'unknown'] = (r.agents[receipt.agent?.detected ?? 'unknown'] ?? 0) + 1;
     const contradictedIds = new Set((receipt.discrepancies ?? []).map((d) => d.claim).filter(Boolean));
@@ -45,10 +51,13 @@ for (const key of repos) {
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '–');
 const fmt = (o) => Object.entries(o).sort().map(([k, v]) => `${k}:${v}`).join(' ') || '–';
 console.log('# Claim–Reality Gap — study summary\n');
-console.log('| Repository | PRs | Verdicts | Claims | Confirmed | Unsupported | Contradicted | Checks fired | Agents |');
-console.log('|---|---:|---|---:|---:|---:|---:|---|---|');
+console.log('| Repository | PRs | Inconclusive | Verdicts (conclusive) | Claims | Confirmed | Unsupported | Contradicted | Checks fired | Agents |');
+console.log('|---|---:|---:|---|---:|---:|---:|---:|---|---|');
+let inconclusiveAll = 0;
 for (const r of rows) {
-  console.log(`| ${r.repo} | ${r.prs} | ${fmt(r.verdicts)} | ${r.claims} | ${pct(r.confirmed, r.claims)} | ${pct(r.unsupported, r.claims)} | ${pct(r.contradicted, r.claims)} | ${fmt(r.checks)} | ${fmt(r.agents)} |`);
+  inconclusiveAll += r.inconclusive ?? 0;
+  console.log(`| ${r.repo} | ${r.prs} | ${r.inconclusive ?? 0} | ${fmt(r.verdicts)} | ${r.claims} | ${pct(r.confirmed, r.claims)} | ${pct(r.unsupported, r.claims)} | ${pct(r.contradicted, r.claims)} | ${fmt(r.checks)} | ${fmt(r.agents)} |`);
 }
-console.log(`| **All** | ${overall.prs} | ${fmt(overall.verdicts)} | ${overall.claims} | ${pct(overall.confirmed, overall.claims)} | ${pct(overall.unsupported, overall.claims)} | ${pct(overall.contradicted, overall.claims)} | ${fmt(overall.checks)} | |`);
-console.log('\nPRs with at least one contradicted claim or a failing check are the headline; Unsupported claims are never counted against the author.');
+console.log(`| **All** | ${overall.prs} | ${inconclusiveAll} | ${fmt(overall.verdicts)} | ${overall.claims} | ${pct(overall.confirmed, overall.claims)} | ${pct(overall.unsupported, overall.claims)} | ${pct(overall.contradicted, overall.claims)} | ${fmt(overall.checks)} | |`);
+console.log('\nInconclusive = the re-run produced no per-test evidence (harness or environment), so nothing was checked; never counted as a pass.');
+console.log('PRs with at least one contradicted claim or a failing check are the headline; Unsupported claims are never counted against the author.');
