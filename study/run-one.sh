@@ -20,6 +20,11 @@ IMG="${MEG_IMAGE:-merge-evidence-study:latest}"
 KEY="${REPO/\//__}"; DATA="$HERE/data/$KEY"; OUT="$HERE/out/$KEY"; WORK="$HERE/work/$KEY/$NUM"
 TIMEOUT="${MEG_TIMEOUT:-1500}"   # seconds per phase
 mkdir -p "$OUT" "$WORK"
+# The clone lives in a per-PR Docker VOLUME (native Linux filesystem): installs
+# are several times faster than over the macOS bind mount, and cleanup is one
+# `docker volume rm` instead of deleting 300k files through virtiofs. Only
+# logs, the PR body, and the receipt go through the bind-mounted $WORK.
+REPOVOL="meg-work-${KEY}-${NUM}"
 
 # Persistent package caches shared by every run (named Docker volumes): the
 # second PR from the same repository reuses the store instead of downloading
@@ -59,10 +64,12 @@ cp "$DATA/$NUM.body.md" "$WORK/body.md"; cp "$DATA/$NUM.commits.txt" "$WORK/comm
 [ -f "$GATE/dist/cli/index.js" ] || { echo "gate CLI not built: run 'npm run build' in $GATE" >&2; exit 2; }
 
 echo "[$KEY#$NUM] phase 1: clone @ ${HEAD:0:7} (base ${BASE:0:7}) + install" >&2
+docker volume rm -f "$REPOVOL" >/dev/null 2>&1 || true
+# Legacy: a clone left on the bind mount by an older run (slow to delete; rare).
 [ -d "$WORK/repo" ] && { docker run --rm --user root -v "$WORK:/work" "$IMG" bash -c 'rm -rf /work/repo /work/.pnpm-store' >/dev/null 2>&1 || rm -rf "$WORK/repo"; }
 # Named volumes are created root-owned; the sandbox runs as `node` (uid 1000).
-docker run --rm --user root "${CACHE_ARGS[@]}" "$IMG" bash -c 'mkdir -p /caches/pnpm /caches/npm /caches/uv /caches/go /caches/corepack && printf "store-dir=/caches/pnpm\ncache=/caches/npm\n" > /caches/npmrc && chown -R 1000:1000 /caches' >/dev/null 2>&1 || true
-docker run --rm --name "meg-$KEY-$NUM-p1" "${CACHE_ARGS[@]}" \
+docker run --rm --user root "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/repo" "$IMG" bash -c 'mkdir -p /caches/pnpm /caches/npm /caches/uv /caches/go /caches/corepack && printf "store-dir=/caches/pnpm\ncache=/caches/npm\n" > /caches/npmrc && chown -R 1000:1000 /caches /work/repo' >/dev/null 2>&1 || true
+docker run --rm --name "meg-$KEY-$NUM-p1" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/repo" \
   -v "$WORK:/work" -v "$GATE:/gate:ro" "$IMG" bash -lc "
     set -e
     git clone -q --no-checkout --filter=blob:none https://github.com/$REPO.git /work/repo
@@ -78,7 +85,7 @@ echo "[$KEY#$NUM] phase 2: clean re-run, network off" >&2
 docker run --rm --network none --name "meg-$KEY-$NUM-p2" \
   -e MEG_REPO="$REPO" -e MEG_NUM="$NUM" -e MEG_HEAD="$HEAD" -e MEG_BASE="$BASE" \
   -e MEG_AUTHOR="$AUTHOR" -e MEG_HREF="$HREF" -e MEG_BREF="$BREF" -e MEG_TITLE="$TITLE" \
-  -e MEG_TEST_CMD="$TEST_CMD" -e MEG_TIMEOUT="$TIMEOUT" "${CACHE_ARGS[@]}" \
+  -e MEG_TEST_CMD="$TEST_CMD" -e MEG_TIMEOUT="$TIMEOUT" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/repo" \
   -v "$WORK:/work" -v "$GATE:/gate:ro" "$IMG" bash -lc '
     cd /work/repo
     extra=(); [ -n "$MEG_TEST_CMD" ] && extra=(--test-command "$MEG_TEST_CMD")
@@ -93,9 +100,9 @@ if [ -f "$WORK/receipt.json" ]; then
   cp "$WORK/receipt.json" "$OUT/$NUM.json"; cp "$WORK/receipt.json.meta.json" "$OUT/$NUM.meta.json" 2>/dev/null || true
   cp "$WORK/receipt.md" "$OUT/$NUM.md" 2>/dev/null || true
   tail -1 "$WORK/phase2.log" | sed "s/^/[$KEY#$NUM] /" >&2
-  # Reclaim disk (node_modules can be 300k files). Deleting through the
-  # container is far faster than a host-side rm over the bind mount on macOS.
-  docker run --rm --user root -v "$WORK:/work" "$IMG" bash -c 'rm -rf /work/repo /work/.pnpm-store' >/dev/null 2>&1 || rm -rf "$WORK/repo"
+  # Reclaim disk: the clone (node_modules can be 300k files) lives in a volume,
+  # so this is instant. Logs and the receipt stay on the bind mount.
+  docker volume rm -f "$REPOVOL" >/dev/null 2>&1 || true
 else
   echo "[$KEY#$NUM] NO RECEIPT — harness error, see $WORK/phase2.log" >&2; exit 1
 fi
