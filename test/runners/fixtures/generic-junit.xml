@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="AcmeSuite" tests="2" failures="0" errors="1" skipped="0" time="0.44">
+  <testcase classname="com.acme.CartTest" name="addsLineItem" time="0.12" />
+  <testcase classname="com.acme.CartTest" name="rejectsNegativeQuantity" time="0.32">
+    <error message="NullPointerException" type="java.lang.NullPointerException">at com.acme.Cart.add(Cart.java:41)</error>
+  </testcase>
+</testsuite>

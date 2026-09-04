@@ -1,0 +1,22 @@
+{"Time":"2026-09-04T18:20:01.100Z","Action":"start","Package":"github.com/acme/svc/pkg/node"}
+{"Time":"2026-09-04T18:20:01.101Z","Action":"run","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune"}
+{"Time":"2026-09-04T18:20:01.102Z","Action":"output","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune","Output":"=== RUN   TestPrune\n"}
+{"Time":"2026-09-04T18:20:01.103Z","Action":"run","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune/empty_tree"}
+{"Time":"2026-09-04T18:20:01.104Z","Action":"output","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune/empty_tree","Output":"=== RUN   TestPrune/empty_tree\n"}
+{"Time":"2026-09-04T18:20:01.180Z","Action":"pass","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune/empty_tree","Elapsed":0.07}
+{"Time":"2026-09-04T18:20:01.181Z","Action":"run","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune/deep_tree"}
+{"Time":"2026-09-04T18:20:01.182Z","Action":"output","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune/deep_tree","Output":"    prune_test.go:88: want 3 nodes, got 4\n"}
+{"Time":"2026-09-04T18:20:01.260Z","Action":"fail","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune/deep_tree","Elapsed":0.078}
+{"Time":"2026-09-04T18:20:01.261Z","Action":"fail","Package":"github.com/acme/svc/pkg/node","Test":"TestPrune","Elapsed":0.16}
+{"Time":"2026-09-04T18:20:01.262Z","Action":"run","Package":"github.com/acme/svc/pkg/node","Test":"TestWalkSkipsSymlinks"}
+{"Time":"2026-09-04T18:20:01.263Z","Action":"output","Package":"github.com/acme/svc/pkg/node","Test":"TestWalkSkipsSymlinks","Output":"    walk_test.go:12: symlink support unavailable on this platform\n"}
+{"Time":"2026-09-04T18:20:01.264Z","Action":"skip","Package":"github.com/acme/svc/pkg/node","Test":"TestWalkSkipsSymlinks","Elapsed":0}
+{"Time":"2026-09-04T18:20:01.265Z","Action":"fail","Package":"github.com/acme/svc/pkg/node","Elapsed":0.201}
+{"Time":"2026-09-04T18:20:01.300Z","Action":"start","Package":"github.com/acme/svc/pkg/store"}
+{"Time":"2026-09-04T18:20:01.301Z","Action":"run","Package":"github.com/acme/svc/pkg/store","Test":"TestPutGet"}
+{"Time":"2026-09-04T18:20:01.340Z","Action":"pass","Package":"github.com/acme/svc/pkg/store","Test":"TestPutGet","Elapsed":0.039}
+{"Time":"2026-09-04T18:20:01.341Z","Action":"run","Package":"github.com/acme/svc/pkg/store","Test":"TestCompact"}
+{"Time":"2026-09-04T18:20:01.402Z","Action":"pass","Package":"github.com/acme/svc/pkg/store","Test":"TestCompact","Elapsed":0.061}
+{"Time":"2026-09-04T18:20:01.403Z","Action":"pass","Package":"github.com/acme/svc/pkg/store","Elapsed":0.103}
+{"Time":"2026-09-04T18:20:01.500Z","Action":"output","Package":"github.com/acme/svc/internal/cache","Output":"# github.com/acme/svc/internal/cache\ninternal/cache/lru.go:42:14: undefined: sync.OnceValue\n"}
+{"Time":"2026-09-04T18:20:01.501Z","Action":"fail","Package":"github.com/acme/svc/internal/cache","Elapsed":0,"FailedBuild":"github.com/acme/svc/internal/cache"}
