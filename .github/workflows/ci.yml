@@ -1,0 +1,29 @@
+# CI runs exactly once per release: on the pull request from `build` into `main`
+# (and on demand). Pushes to `build` deliberately trigger nothing — day-to-day
+# verification happens locally (`npm run check`), so no Actions minutes are
+# spent while the product is being built.
+name: ci
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test -- --passWithNoTests
+      - run: npm run build
+      - name: Bundle is buildable and action.yml points at it
+        run: test -f dist/index.js && grep -q "main: 'dist/index.js'" action.yml

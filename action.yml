@@ -1,0 +1,52 @@
+name: 'Merge-Evidence Gate'
+description: 'Re-runs an AI-agent pull request in a clean environment, compares what the agent claimed to what actually happened, and posts a receipt that decides merge eligibility.'
+author: 'AxiGate'
+branding:
+  icon: 'check-square'
+  color: 'blue'
+
+inputs:
+  github-token:
+    description: 'Token used to read the PR and post the receipt comment. Defaults to the workflow token.'
+    required: false
+    default: ${{ github.token }}
+  test-command:
+    description: 'Explicit test command to run. When omitted the gate detects one from .merge-evidence.yml, Makefile, package.json, go.mod, pyproject.toml, or Cargo.toml.'
+    required: false
+    default: ''
+  agents-only:
+    description: 'Only run when the PR looks agent-authored (bot login, branch prefix, body marker, co-author trailer). Set to "false" to gate every PR.'
+    required: false
+    default: 'true'
+  fail-on:
+    description: 'Verdict at or above which the job fails: "fail" (default) or "needs-human".'
+    required: false
+    default: 'fail'
+  comment:
+    description: 'Post/update the sticky receipt comment on the PR.'
+    required: false
+    default: 'true'
+  upload-receipt:
+    description: 'Upload receipt.json as a workflow artifact.'
+    required: false
+    default: 'true'
+  policy-file:
+    description: 'Path to a policy file (severity overrides, scope allowlist).'
+    required: false
+    default: '.merge-evidence.yml'
+  working-directory:
+    description: 'Directory to run the test command in.'
+    required: false
+    default: '.'
+
+outputs:
+  verdict:
+    description: 'PASS | NEEDS_HUMAN | FAIL | NEUTRAL'
+  receipt-path:
+    description: 'Path to the generated receipt.json'
+  discrepancies:
+    description: 'Number of discrepancies found'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'

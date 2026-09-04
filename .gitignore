@@ -1,0 +1,12 @@
+node_modules/
+coverage/
+*.log
+.DS_Store
+.env
+.env.*
+# gate outputs produced during local runs
+receipt.json
+merge-evidence-report.*
+# dist/ is committed only at release time (GitHub Actions run the bundle);
+# keep it ignored on the build branch so workers never fight over it.
+dist/
