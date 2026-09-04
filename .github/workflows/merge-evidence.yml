@@ -1,0 +1,30 @@
+# Dogfood: the gate guards its own pull requests.
+# Every PR to this repo is re-run on a clean runner, the description's claims
+# are checked against what actually ran, and the receipt is posted as a
+# comment. `agents-only` is left at its default (true): a PR with no agent
+# signal is skipped with a NEUTRAL verdict, so human PRs cost nothing.
+name: merge-evidence
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: ./
+        with:
+          test-command: 'npx vitest run'
