@@ -289,12 +289,14 @@ export function readPackageManager(files: Record<string, string | undefined>): P
 
 /**
  * How each package manager is invoked, and whether extra args need a `--`
- * separator to reach the underlying script. yarn and bun forward trailing args
- * directly; npm and pnpm need the separator.
+ * separator to reach the underlying script. Only npm needs it: pnpm, yarn and
+ * bun forward trailing args directly, and pnpm passes an explicit `--` THROUGH
+ * to the script — `vitest run -- --reporter=json` then treats the flags as file
+ * filters and writes no report (seen on a real monorepo run).
  */
 const PM_INVOCATION: Record<PackageManager, { command: string; separator: string }> = {
   npm: { command: 'npm test', separator: ' --' },
-  pnpm: { command: 'pnpm test', separator: ' --' },
+  pnpm: { command: 'pnpm test', separator: '' },
   yarn: { command: 'yarn test', separator: '' },
   bun: { command: 'bun run test', separator: '' },
 };
@@ -416,8 +418,9 @@ function resolveWrittenCommand(
   if (isPackageManagerCommand(command)) {
     const pkg = parsePackageJson(files['package.json']);
     const node = classifyNodeRunner(pkg?.scripts?.['test'], pkg);
-    // The command already names the package manager, so append args to it directly.
-    const separator = /(^|\s)(npm|pnpm)(\s|$)/.test(command) ? ' --' : '';
+    // The command already names the package manager, so append args to it
+    // directly. Only npm needs the `--` separator (see PM_INVOCATION).
+    const separator = /(^|\s)npm(\s|$)/.test(command) ? ' --' : '';
     if (node === 'vitest') return injectVitest(command, separator);
     if (node === 'jest') return injectJest(command, separator);
     return opaque(command, 'npm');

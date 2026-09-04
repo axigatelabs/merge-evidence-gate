@@ -116,7 +116,8 @@ if [ -f "$WORK/receipt.json" ]; then
   tail -1 "$WORK/phase2.log" | sed "s/^/[$KEY#$NUM] /" >&2
   # Reclaim disk: the clone (node_modules can be 300k files) lives in a volume,
   # so this is instant. Logs and the receipt stay on the bind mount.
-  docker volume rm -f "$REPOVOL" >/dev/null 2>&1 || true
+  # MEG_KEEP=1 keeps the volume for a post-mortem (`docker run -v $REPOVOL:/r`).
+  [ "${MEG_KEEP:-0}" = "1" ] || docker volume rm -f "$REPOVOL" >/dev/null 2>&1 || true
 else
   echo "[$KEY#$NUM] NO RECEIPT — harness error, see $WORK/phase2.log" >&2; exit 1
 fi

@@ -181,11 +181,11 @@ describe('detectTestCommand — package.json scripts.test', () => {
     });
   });
 
-  it('uses pnpm when pnpm-lock.yaml is present', () => {
+  it('uses pnpm when pnpm-lock.yaml is present — without a `--` separator, which pnpm would pass through to the script', () => {
     const result = detect({ 'package.json': PKG_VITEST, 'pnpm-lock.yaml': 'lockfileVersion: 9.0' });
     expect(result?.family).toBe('vitest');
     expect(result?.command).toBe(
-      `pnpm test -- --reporter=json --outputFile=${REPORT_PATHS.vitest}`,
+      `pnpm test --reporter=json --outputFile=${REPORT_PATHS.vitest}`,
     );
     expect(result?.reportPath).toBe(REPORT_PATHS.vitest);
   });

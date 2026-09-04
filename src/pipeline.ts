@@ -285,8 +285,13 @@ export function parseReport(
 
   // Go streams its JSON events to stdout; every other supported runner writes a
   // report file. `runTests` has already teed stdout to `reportPath` for Go, so
-  // the file is tried first either way and stdout is the fallback.
-  const raw = readReport(join(workDir, detected.reportPath)) ?? (stdout.trim() === '' ? undefined : stdout);
+  // the file is tried first either way and stdout is the fallback — for Go
+  // ONLY. For a file-based runner, plain stdout is never a report: feeding the
+  // console text to the adapter parses to zero tests silently, which reads
+  // like "nothing ran" instead of "the reporter produced nothing".
+  const raw =
+    readReport(join(workDir, detected.reportPath)) ??
+    (detected.family === 'go' && stdout.trim() !== '' ? stdout : undefined);
   if (raw !== undefined) {
     try {
       return normalize(detected.family, raw);

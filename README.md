@@ -144,8 +144,10 @@ Every run also gets `CI=1`, `TZ=UTC`, `LANG=C.UTF-8`.
 | plain `cargo test` | unchanged — no per-test output exists; the receipt records a note | `.merge-evidence/cargo-test.txt` |
 | anything else | unchanged; the receipt records that per-test evidence is unavailable | `.merge-evidence/test-output.txt` |
 
-For npm and pnpm the injected flags are separated with ` --` so they reach the
-underlying script; yarn and bun forward trailing arguments directly.
+For npm the injected flags are separated with ` --` so they reach the underlying
+script. pnpm, yarn and bun forward trailing arguments directly — pnpm passes an
+explicit `--` through to the script, where vitest would read the flags as file
+filters and write no report.
 
 nextest only writes JUnit when the repository has a `ci` profile configured —
 `[profile.ci.junit] path = "junit.xml"` in `.config/nextest.toml`. Without it the
