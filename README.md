@@ -52,7 +52,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0            # the gate compares head against base
       # set up your toolchain here (actions/setup-node, setup-go, setup-python …)
-      - uses: AbhiKumawat/merge-evidence-gate@v1
+      - uses: axigatelabs/merge-evidence-gate@v1
         with:
           # optional — auto-detected from your repo when omitted
           test-command: 'go test ./...'

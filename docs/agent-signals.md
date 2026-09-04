@@ -103,7 +103,7 @@ Two ways, both supported. The action input wins over the config file.
 **Action input** (`action.yml`):
 
 ```yaml
-- uses: AbhiKumawat/merge-evidence-gate@v1
+- uses: axigatelabs/merge-evidence-gate@v1
   with:
     agents-only: 'false'
 ```
