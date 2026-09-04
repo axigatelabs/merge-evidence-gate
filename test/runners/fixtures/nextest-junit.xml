@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="4" failures="1" errors="0" uuid="6c1f0f1e-8a9d-4a3e-9b1f-2f5b6a0d3c11" timestamp="2026-09-04T18:26:02.115" time="2.401">
+    <testsuite name="svc" tests="4" disabled="0" errors="0" failures="1">
+        <testcase name="store::tests::put_then_get" classname="svc" timestamp="2026-09-04T18:26:02.120" time="0.031">
+        </testcase>
+        <testcase name="store::tests::compacts_under_pressure" classname="svc" timestamp="2026-09-04T18:26:02.151" time="0.412">
+            <flakyFailure message="assertion failed: store.len() == 3" type="test failure">
+                <system-err>thread &apos;store::tests::compacts_under_pressure&apos; panicked at src/store.rs:212</system-err>
+            </flakyFailure>
+        </testcase>
+        <testcase name="net::tests::retries_on_timeout" classname="svc" timestamp="2026-09-04T18:26:02.563" time="1.902">
+            <failure message="assertion failed: attempts == 3" type="test failure">thread panicked at src/net.rs:88</failure>
+            <rerunFailure message="assertion failed: attempts == 3" type="test failure">
+                <system-err>attempt 2 of 2</system-err>
+            </rerunFailure>
+        </testcase>
+        <testcase name="net::tests::ipv6_only" classname="svc" timestamp="2026-09-04T18:26:04.465" time="0.000">
+            <skipped message="ignored" />
+        </testcase>
+    </testsuite>
+</testsuites>

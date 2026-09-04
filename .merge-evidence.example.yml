@@ -1,0 +1,26 @@
+# Copy to `.merge-evidence.yml` in your repository root to tune the gate.
+# Every key is optional; omitted keys use the v1 defaults documented in
+# docs/receipt-spec.md.
+
+version: 1
+
+# Explicit test command. When omitted the gate detects one from Makefile,
+# package.json, go.mod, pyproject.toml / pytest.ini, or Cargo.toml.
+# test-command: go test ./...
+
+# Only gate PRs that look agent-authored (default true). Set false to gate all PRs.
+agents-only: true
+
+# Override the severity of individual checks: fail | needs-human | info
+severity:
+  # C2: claimed test count differs from what ran
+  C2: needs-human
+  # C5: lockfile / dependency manifest changed without being mentioned
+  C5: needs-human
+  # C8: files changed outside what the PR describes
+  C8: info
+
+# Paths allowed to change without being mentioned in the PR body (globs).
+scope-allow:
+  - "docs/**"
+  - "CHANGELOG.md"

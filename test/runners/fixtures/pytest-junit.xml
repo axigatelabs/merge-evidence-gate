@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" errors="0" failures="1" skipped="1" tests="4" time="1.284" timestamp="2026-09-04T18:24:11.402113" hostname="runner">
+    <testcase classname="tests.test_auth" name="test_login_sets_cookie" file="tests/test_auth.py" line="14" time="0.081" />
+    <testcase classname="tests.test_auth" name="test_login_rejects_bad_password" file="tests/test_auth.py" line="27" time="0.064">
+      <failure message="AssertionError: assert 200 == 401">tests/test_auth.py:31: in test_login_rejects_bad_password
+    assert resp.status_code == 401
+E   assert 200 == 401</failure>
+    </testcase>
+    <testcase classname="tests.test_auth" name="test_login_over_ldap" file="tests/test_auth.py" line="44" time="0.001">
+      <skipped type="pytest.skip" message="requires an LDAP server">/home/runner/work/svc/tests/test_auth.py:45: requires an LDAP server</skipped>
+    </testcase>
+    <testcase classname="tests.test_store.TestCompaction" name="test_compacts_on_threshold" file="tests/test_store.py" line="61" time="1.138" />
+  </testsuite>
+</testsuites>

@@ -1,0 +1,88 @@
+{
+  "success": false,
+  "startTime": 1788974400000,
+  "numTotalTestSuites": 2,
+  "numTotalTests": 6,
+  "numPassedTests": 3,
+  "numFailedTests": 1,
+  "numPendingTests": 1,
+  "numTodoTests": 0,
+  "testResults": [
+    {
+      "name": "/home/runner/work/svc/src/cart/cart.test.ts",
+      "status": "failed",
+      "startTime": 1788974400120,
+      "endTime": 1788974400910,
+      "message": "",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["Cart"],
+          "title": "adds a line item",
+          "fullName": "Cart adds a line item",
+          "status": "passed",
+          "duration": 12,
+          "failureMessages": [],
+          "invocations": 1,
+          "location": null
+        },
+        {
+          "ancestorTitles": ["Cart"],
+          "title": "rejects a negative quantity",
+          "fullName": "Cart rejects a negative quantity",
+          "status": "failed",
+          "duration": 31,
+          "failureMessages": ["Error: expected 400, received 200"],
+          "invocations": 1,
+          "location": null
+        },
+        {
+          "ancestorTitles": ["Cart"],
+          "title": "applies a coupon",
+          "fullName": "Cart applies a coupon",
+          "status": "pending",
+          "duration": null,
+          "failureMessages": [],
+          "location": null
+        }
+      ]
+    },
+    {
+      "name": "/home/runner/work/svc/src/checkout/checkout.test.ts",
+      "status": "passed",
+      "startTime": 1788974400930,
+      "endTime": 1788974401740,
+      "message": "",
+      "assertionResults": [
+        {
+          "ancestorTitles": ["Checkout"],
+          "title": "charges the card once",
+          "fullName": "Checkout charges the card once",
+          "status": "passed",
+          "duration": 244,
+          "failureMessages": [],
+          "invocations": 2,
+          "location": null
+        },
+        {
+          "ancestorTitles": ["Checkout"],
+          "title": "emits a receipt",
+          "fullName": "Checkout emits a receipt",
+          "status": "focused",
+          "duration": 9,
+          "failureMessages": [],
+          "invocations": 1,
+          "location": null
+        },
+        {
+          "ancestorTitles": ["Checkout"],
+          "title": "refunds a partial capture",
+          "fullName": "Checkout refunds a partial capture",
+          "status": "todo",
+          "duration": null,
+          "failureMessages": [],
+          "location": null
+        }
+      ]
+    }
+  ]
+}
