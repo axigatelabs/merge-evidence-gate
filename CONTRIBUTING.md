@@ -33,9 +33,12 @@ npm run check
 
 That is `npm run typecheck && npm test && npm run build` — TypeScript with
 `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` on; the
-Vitest suite; and the `ncc` bundle. All three must pass. Because CI runs once per
-release, a broken commit on `build` is not caught by a robot — it is caught by
-whoever pulls next.
+Vitest suite; and the two `ncc` bundles (`dist/index.js` for the Action,
+`dist/cli/index.js` for the offline CLI). All three must pass. `ncc` typechecks
+everything `tsconfig.json` includes, tests as well as `src/`, so a test file that
+reaches past `lib: ES2022` fails the build even when Vitest is green. Because CI
+runs once per release, a broken commit on `build` is not caught by a robot — it
+is caught by whoever pulls next.
 
 `dist/` is gitignored on `build` and committed only at release time, so never
 commit a bundle from a task branch.
