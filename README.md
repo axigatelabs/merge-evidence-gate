@@ -234,6 +234,61 @@ scan, so the gate still takes no YAML dependency. The path is looked for inside
 `working-directory` first and then at the repository root, and an unparsable file
 falls back to the built-in defaults with a warning rather than failing the run.
 
+## Run it locally
+
+The same pipeline runs without GitHub. `dist/cli/index.js` (built by `npm run
+build`) takes the pull-request facts as arguments, re-runs the tests in the
+checkout you point it at, and writes the receipt to a file — no token, no event,
+no comment, no artifact. Use it to see what the gate will say before you push,
+or to re-run archived pull requests inside a network-less container.
+
+```bash
+npm ci && npm run build
+
+node dist/cli/index.js \
+  --work /path/to/checkout \
+  --repo owner/name --pr 128 \
+  --head 3f2a1c9 --base 9b71e40 \
+  --author agent-bot --head-ref claude/add-div --base-ref main \
+  --title 'math: add div' \
+  --body-file pr-body.md \
+  --out receipt.json --markdown receipt.md
+# merge-evidence: verdict=FAIL discrepancies=2 tests=2/2 unverifiable=1
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--work <dir>` | **Required.** The checkout to test. |
+| `--head <sha>` | **Required.** Head commit the receipt names; the checkout is moved there if it is not already. |
+| `--out <path>` | **Required.** Where `receipt.json` goes. |
+| `--repo <owner/name>` | Repository the pull request belongs to. |
+| `--pr <n>` | Pull request number. |
+| `--base <sha>` | Base commit. Without it the diff-based checks (C3–C8) do not run. |
+| `--author <login>` | Pull request author login. |
+| `--head-ref` / `--base-ref` | Branch names, used for agent detection and the receipt. |
+| `--title <text>` | Pull request title. |
+| `--body-file <path>` | The pull request body as markdown — this is where the claims come from. Default: an empty body. |
+| `--commits-file <path>` | Commit messages, one per blank-line-separated block (`git log --format=%B`), so co-author trailers are read. |
+| `--test-command <cmd>` | Command to run; wins over the policy file and detection. |
+| `--policy-file <path>` | Policy file (default `.merge-evidence.yml`). |
+| `--agents-only <true\|false>` | Only gate agent-authored pull requests (default `true`). |
+| `--markdown <path>` | Also write the rendered receipt as markdown. |
+| `--install-only` | Check out the head, install dependencies, and stop — the "network is still on" step before an offline run. |
+| `--skip-install` | Do not install; the checkout already has its dependencies. |
+
+Two outputs, always in the same place: `receipt.json` at `--out`, and a
+`<out>.meta.json` sidecar carrying `verdict`, `skipped`, `agent`, `unverifiable`,
+`notes` and `title`. The sidecar is written even when there is no receipt (a
+pull request skipped as not agent-authored), so a harness can tell a skip from a
+crash.
+
+**The exit code is about the tool, not the pull request.** `0` means the gate
+reached a verdict — `PASS`, `NEEDS_HUMAN`, `FAIL` or `NEUTRAL`, all of them
+readable on the last line of stdout and in the sidecar. `2` means the CLI itself
+could not run: a bad argument, a missing checkout, a crash, with the reason on
+stderr. Nothing about a verdict, including one that says the run contradicted
+what the pull request claimed, ever becomes a non-zero exit.
+
 ## Reading a receipt
 
 The comment is the product. It fits on one screen and every line points at
@@ -371,8 +426,10 @@ Marketplace.
 Implemented today: agent detection, claim extraction, test-command detection and
 reporter injection, the runner adapters and normalization, the tests digest, diff
 analysis, the reconcile step, the receipt and comment renderers (`src/core/`),
-and the Action wiring in `src/main.ts` — inputs, the clean re-run, the sticky
-comment, the `receipt.json` artifact, the job summary, and the outputs.
+the shared pipeline in `src/pipeline.ts` — the clean re-run, the diff and the
+reconciliation — plus its two front-ends: the Action wiring in `src/main.ts`
+(inputs, the sticky comment, the `receipt.json` artifact, the job summary and the
+outputs) and the offline CLI in `src/cli.ts`.
 
 ## Contributing
 
