@@ -10,3 +10,7 @@ merge-evidence-report.*
 # dist/ is committed only at release time (GitHub Actions run the bundle);
 # keep it ignored on the build branch so workers never fight over it.
 dist/
+# study harness: fetched PR data, sandbox work dirs, and receipts are local
+study/data/
+study/work/
+study/out/
