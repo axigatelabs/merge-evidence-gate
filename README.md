@@ -228,10 +228,11 @@ scope-allow:
 | `severity` | map of check id → `fail` \| `needs-human` \| `info` | Raise or lower any check. Setting a check to `info` never blocks a merge. |
 | `scope-allow` | list of globs | Paths excluded from the C8 scope comparison. Matched with `minimatch`, `dot: true`. |
 
-Today only `test-command` is read from this file (`readYamlTestCommand` in
-`src/core/runners/detect.ts`); loading the rest of the policy is part of the
-planned Action wiring. The keys and defaults are fixed — `Policy` in
-`src/core/types.ts` — so a file written now will be honored when it lands.
+The whole file is read (`parsePolicyYaml` in `src/core/reconcile/policy.ts`);
+`test-command` is additionally understood by the runner's own single-key line
+scan, so the gate still takes no YAML dependency. The path is looked for inside
+`working-directory` first and then at the repository root, and an unparsable file
+falls back to the built-in defaults with a warning rather than failing the run.
 
 ## Reading a receipt
 
@@ -368,10 +369,10 @@ Under active development on the `build` branch. Not yet published to the
 Marketplace.
 
 Implemented today: agent detection, claim extraction, test-command detection and
-reporter injection, the runner adapters and normalization, the tests digest, and
-diff analysis (`src/core/`). Planned: the reconcile step that turns those into
-discrepancies, the receipt and comment renderers, and the Action wiring —
-`src/main.ts` is currently a stub.
+reporter injection, the runner adapters and normalization, the tests digest, diff
+analysis, the reconcile step, the receipt and comment renderers (`src/core/`),
+and the Action wiring in `src/main.ts` — inputs, the clean re-run, the sticky
+comment, the `receipt.json` artifact, the job summary, and the outputs.
 
 ## Contributing
 
