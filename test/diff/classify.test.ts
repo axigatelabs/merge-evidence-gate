@@ -136,6 +136,27 @@ describe('verificationLayerReason', () => {
     );
   });
 
+  it.each([
+    ['a helper script doing housekeeping', 'study/run-one.sh', '+docker volume rm -f "$REPOVOL" >/dev/null 2>&1 || true'],
+    ['a config probe', 'study/lib-resources.sh', "+  vm=\"$(docker info --format '{{.MemTotal}}' 2>/dev/null || true)\""],
+    ['documentation quoting the pattern', 'docs/ci.md', '+    pytest || true'],
+    ['a deploy script bypassing hooks', 'tools/release.sh', '+git push --no-verify'],
+  ])('does not flag %s', (_label, path, addedLine) => {
+    expect(verificationLayerReason(path, ['@@ -1,2 +1,3 @@', addedLine].join('\n'))).toBeNull();
+  });
+
+  it.each([
+    ['a test command silenced in a helper script', 'tools/deploy.sh', '+pytest -q || true'],
+    ['a Makefile target', 'Makefile', '+\tgo test ./... || true'],
+    ['a package.json script', 'package.json', '+    "test": "vitest run || true",'],
+    ['a GitLab pipeline', '.gitlab-ci.yml', '+  allow_failure: true'],
+    ['a vitest invocation through npx', 'bin/check.sh', '+npx vitest run || true'],
+  ])('flags %s', (_label, path, addedLine) => {
+    expect(verificationLayerReason(path, ['@@ -1,2 +1,3 @@', addedLine].join('\n'))).toBe(
+      REASON_FAILURE_SUPPRESSED,
+    );
+  });
+
   it('ignores a suppression token that is only being REMOVED', () => {
     // Deleting `|| true` strengthens CI; it must not be reported as weakening it.
     expect(

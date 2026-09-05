@@ -38,11 +38,12 @@ jobs:
         # The bundle must be self-contained: 0.1.0 shipped with a
         # `require('./sourcemap-register.js')` to a gitignored file and crashed
         # on every install. Run it as a non-PR event so it exits after the
-        # "nothing to do" notice instead of gating this job.
-        env:
-          GITHUB_EVENT_NAME: push
+        # "nothing to do" notice instead of gating this job. GITHUB_* variables
+        # cannot be overridden with `env:`; a shell-level assignment reaches
+        # the child process.
         run: |
           test -f dist/index.js
           grep -q "main: 'dist/index.js'" action.yml
           ! grep -q "require('./" dist/index.js
-          node dist/index.js
+          GITHUB_EVENT_NAME=push GITHUB_EVENT_PATH=/nonexistent node dist/index.js | tee /tmp/gate.out
+          grep -q "nothing to do" /tmp/gate.out

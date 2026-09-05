@@ -170,6 +170,12 @@ const COPILOT_INSTRUCTIONS_PATH = /(?:^|\/)\.github\/copilot-instructions\.md$/;
 /**
  * Added-line tokens that neutralise a failing step, paired with the case each catches.
  * These are the "make red go green without fixing anything" edits.
+ *
+ * Where they count: anywhere in a CI-relevant file (workflows, CI configs,
+ * Makefiles, `package.json`, `scripts/`, task runners), and elsewhere only on a
+ * line that runs a test command. `docker volume rm x || true` in a helper
+ * script is housekeeping; `pytest || true` anywhere is not. Documentation is
+ * never executed and is skipped.
  */
 const SUPPRESSION_PATTERNS: readonly RegExp[] = [
   /continue-on-error:\s*true/, // GitHub Actions step that no longer fails the job
@@ -178,6 +184,22 @@ const SUPPRESSION_PATTERNS: readonly RegExp[] = [
   /set\s+\+e/, // shell: stop aborting on error for the rest of the script
   /allow_failure/, // GitLab CI / generic: allow_failure: true
 ];
+
+/** Files CI executes or reads: a suppression token counts anywhere in them. */
+const CI_RELEVANT_PATH =
+  /(?:^|\/)(?:\.github\/workflows\/[^/]+|\.gitlab-ci\.ya?ml|\.circleci\/[^/]+|\.travis\.ya?ml|azure-pipelines\.ya?ml|Jenkinsfile|bitbucket-pipelines\.ya?ml|\.buildkite\/[^/]+|Makefile|GNUmakefile|justfile|Taskfile\.ya?ml|tox\.ini|noxfile\.py|package\.json|scripts?\/[^/]+|\.?ci\/[^/]+)$/i;
+
+/** A line that invokes a test runner: suppressing ITS failure counts in any file. */
+const TEST_INVOCATION =
+  /\b(?:pytest|py\.test|go\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|npx\s+(?:vitest|jest|mocha|playwright|cypress)|vitest|jest|mocha|cargo\s+(?:test|nextest)|make\s+(?:test|check)|ctest|mvn|gradlew?|dotnet\s+test|rspec|bundle\s+exec|phpunit|mix\s+test|swift\s+test|xcodebuild|flutter\s+test|dart\s+test|deno\s+test|tox|nox|coverage\s+run)\b/;
+
+/** Documentation is never executed, so a token quoted in prose is not a suppression. */
+const DOC_FILE = /\.(?:md|mdx|rst|txt|adoc)$/i;
+
+function suppressesFailure(line: string, ciRelevant: boolean): boolean {
+  if (!SUPPRESSION_PATTERNS.some((pattern) => pattern.test(line))) return false;
+  return ciRelevant || TEST_INVOCATION.test(line);
+}
 
 // ---------------------------------------------------------------------------
 // Patch helpers
@@ -332,9 +354,11 @@ export function verificationLayerReason(path: string, patch?: string): string | 
   const name = basename(p);
 
   // Content signal first: an added line that makes failure survivable.
-  const added = addedLines(patch);
-  if (added.some((line) => SUPPRESSION_PATTERNS.some((pattern) => pattern.test(line)))) {
-    return REASON_FAILURE_SUPPRESSED;
+  if (!DOC_FILE.test(p)) {
+    const ciRelevant = CI_RELEVANT_PATH.test(p);
+    if (addedLines(patch).some((line) => suppressesFailure(line, ciRelevant))) {
+      return REASON_FAILURE_SUPPRESSED;
+    }
   }
 
   if (CI_WORKFLOW_PATH.test(p)) return REASON_CI_WORKFLOW;

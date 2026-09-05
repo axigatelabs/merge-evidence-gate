@@ -75,6 +75,12 @@ review of the fix.
   tests-added line appears in 49 of the 140 sampled bodies.
 - A raised `C8` severity now decides the verdict on a run that abstained for
   lack of evidence, like every other run-independent check.
+- **C4 "CI failure suppressed" is scoped.** `|| true`, `set +e` and friends
+  count anywhere in a CI-relevant file (workflows and CI configs, `Makefile`,
+  `package.json`, `scripts/`, task runners) and, in any other executable file,
+  only on a line that runs a test command. The gate's own pull request had
+  flagged `docker volume rm … || true` in a study helper as a weakened CI.
+  Documentation files are skipped.
 - `study/summarize.mjs` scores only checkable claims (command, count, "tests
   added"); every other checkbox is counted as stated, not checkable, and a
   run-inconclusive PR still contributes its diff-based findings.
