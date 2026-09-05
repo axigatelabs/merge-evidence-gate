@@ -141,6 +141,10 @@ describe('verificationLayerReason', () => {
     ['a config probe', 'study/lib-resources.sh', "+  vm=\"$(docker info --format '{{.MemTotal}}' 2>/dev/null || true)\""],
     ['documentation quoting the pattern', 'docs/ci.md', '+    pytest || true'],
     ['a deploy script bypassing hooks', 'tools/release.sh', '+git push --no-verify'],
+    ['source code where || is an operator', 'src/flags.ts', '+const enabled = process.env.X || true;'],
+    ['a comment in source that mentions the pattern', 'src/core/diff/classify.ts', '+ * script is housekeeping; `pytest || true` anywhere is not.'],
+    ['a test fixture quoting the pattern', 'test/diff/classify.test.ts', "+    ['a test command silenced', 'tools/deploy.sh', '+pytest -q || true'],"],
+    ['a bundled artifact', 'dist/index.js', '+/pytest \\|\\| true/'],
   ])('does not flag %s', (_label, path, addedLine) => {
     expect(verificationLayerReason(path, ['@@ -1,2 +1,3 @@', addedLine].join('\n'))).toBeNull();
   });
@@ -151,6 +155,8 @@ describe('verificationLayerReason', () => {
     ['a package.json script', 'package.json', '+    "test": "vitest run || true",'],
     ['a GitLab pipeline', '.gitlab-ci.yml', '+  allow_failure: true'],
     ['a vitest invocation through npx', 'bin/check.sh', '+npx vitest run || true'],
+    ['pipeline YAML outside the standard directory', 'deploy/pipeline.yml', '+    script: pytest || true'],
+    ['a Dockerfile RUN step', 'Dockerfile', '+RUN npm test || true'],
   ])('flags %s', (_label, path, addedLine) => {
     expect(verificationLayerReason(path, ['@@ -1,2 +1,3 @@', addedLine].join('\n'))).toBe(
       REASON_FAILURE_SUPPRESSED,

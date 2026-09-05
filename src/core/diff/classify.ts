@@ -196,6 +196,16 @@ const TEST_INVOCATION =
 /** Documentation is never executed, so a token quoted in prose is not a suppression. */
 const DOC_FILE = /\.(?:md|mdx|rst|txt|adoc)$/i;
 
+/**
+ * Files a shell interprets, where `|| true` discards an exit code. In source
+ * code `||` is an operator (`flag || true`) and in a test fixture or a bundle
+ * the token is quoted text, so those files are never scanned.
+ */
+const SHELL_FILE = /(?:^|\/)(?:Dockerfile[^/]*|[^/]+\.(?:sh|bash|zsh|ksh|bat|cmd|ps1))$/i;
+
+/** Pipeline YAML outside the standard directories (a GitLab include, a Buildkite step file). */
+const PIPELINE_YAML = /\.ya?ml$/i;
+
 function suppressesFailure(line: string, ciRelevant: boolean): boolean {
   if (!SUPPRESSION_PATTERNS.some((pattern) => pattern.test(line))) return false;
   return ciRelevant || TEST_INVOCATION.test(line);
@@ -353,12 +363,12 @@ export function verificationLayerReason(path: string, patch?: string): string | 
   const p = normalize(path);
   const name = basename(p);
 
-  // Content signal first: an added line that makes failure survivable.
-  if (!DOC_FILE.test(p)) {
-    const ciRelevant = CI_RELEVANT_PATH.test(p);
-    if (addedLines(patch).some((line) => suppressesFailure(line, ciRelevant))) {
-      return REASON_FAILURE_SUPPRESSED;
-    }
+  // Content signal first: an added line that makes failure survivable — only
+  // in files where the token is executed rather than quoted.
+  const ciRelevant = CI_RELEVANT_PATH.test(p);
+  const scannable = !DOC_FILE.test(p) && (ciRelevant || SHELL_FILE.test(p) || PIPELINE_YAML.test(p));
+  if (scannable && addedLines(patch).some((line) => suppressesFailure(line, ciRelevant))) {
+    return REASON_FAILURE_SUPPRESSED;
   }
 
   if (CI_WORKFLOW_PATH.test(p)) return REASON_CI_WORKFLOW;
