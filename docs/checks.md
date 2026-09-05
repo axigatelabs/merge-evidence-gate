@@ -112,7 +112,11 @@ on one line into a single `count` claim, so `12 tests, 0 failures` parses as
 `{ total: 12, failed: 0 }` rather than two half-claims (`COUNT_TOKEN` and
 `COUNT_JOINER` in `src/core/claims/extract.ts`). Recognized nouns cover pass,
 fail, error, skip, ignored, and total; a short list of adjectives is allowed
-between the number and the noun so `(11 related tests)` still parses.
+between the number and the noun so `(11 related tests)` still parses. Two
+shapes are never counts: a pair inside quotation marks (someone else's words
+being cited — `"Claimed 1480 total; 0 observed"`) and any pair on a line that
+compares runs or reports on another one (`observed`, `claimed`, `at base`,
+`at head`, `vs`, `previously`, `before the fix`).
 
 The comparison only runs when the claim and the run plausibly describe the same
 set. A claim smaller than the run — "322 tests" for one package while the gate

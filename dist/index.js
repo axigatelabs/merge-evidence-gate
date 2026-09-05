@@ -83228,6 +83228,24 @@ function parseCommand(raw, prefix, runner) {
 const COUNT_TOKEN = /(\d+)\s+(?:(?:related|new|existing|additional|unit|integration|total)\s+)?(passed|passing|passes|pass|failures|failure|failed|failing|fails|fail|errors|error|skipped|skips|skip|ignored|tests|test|total)\b/gi;
 /** Text allowed between two pairs that belong to the same count, e.g. ", " or " and ". */
 const COUNT_JOINER = /^[\s,;/|]*(?:and|with|but)?[\s,;/|]*$/i;
+/**
+ * A quoted span on a line: `"Claimed 1480 total; 0 observed"`. A count inside
+ * quotation marks is someone else's words being cited, not an assertion about
+ * this pull request's run.
+ */
+const QUOTED_SPAN = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
+/**
+ * Vocabulary of a line that compares runs or reports on another one — "head
+ * 203 failures, base ffc6440 the same 203", "observed 6 failures before the
+ * fix". Counts on such a line describe a comparison, not the run this pull
+ * request claims to have made, so they are left out rather than checked
+ * against the wrong thing.
+ */
+const COMPARISON_LINE = /\b(?:observed|claimed|at base|at head|vs\.?|versus|previously|before this|before the fix|under \d)\b|\bhead\b.*\bbase\b|\bbase\b.*\bhead\b/i;
+/** The `[start, end)` ranges of every quoted span on the line. */
+function quotedRanges(line) {
+    return [...line.matchAll(QUOTED_SPAN)].map((m) => [m.index, m.index + m[0].length]);
+}
 function countField(noun) {
     const word = noun.toLowerCase();
     if (word.startsWith('pass'))
@@ -83359,8 +83377,13 @@ function collectFromLine(line, section) {
         }
     }
     // Adjacent "<n> <noun>" pairs merge into one count, so "68 tests, 0 failures"
-    // is a single claim with total and failed rather than two half-claims.
-    const pairs = [...line.matchAll(COUNT_TOKEN)];
+    // is a single claim with total and failed rather than two half-claims. Pairs
+    // inside quotation marks, or anywhere on a line that compares runs, are not
+    // assertions about this pull request and are skipped.
+    const quoted = quotedRanges(line);
+    const pairs = COMPARISON_LINE.test(line)
+        ? []
+        : [...line.matchAll(COUNT_TOKEN)].filter((pair) => !quoted.some(([start, end]) => pair.index >= start && pair.index < end));
     for (let i = 0; i < pairs.length;) {
         const first = pairs[i];
         if (first === undefined)
