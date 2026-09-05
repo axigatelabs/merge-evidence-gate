@@ -1,0 +1,198 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-04T20:17:14Z",
+  "pr": {
+    "repo": "mastra-ai/mastra",
+    "number": 22052,
+    "head_sha": "5f959d51c02135ef81c75cd172d7a6f0618ad72c",
+    "base_sha": "372b1a71d670deeb958e4fa3d7cfeddef225a617",
+    "author": "devin-ai-integration[bot]"
+  },
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "body-marker:devin",
+      "branch-prefix:devin",
+      "login:devin"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "checkbox",
+      "text": "- [x] Bug fix (non-breaking change that fixes an issue)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Bug fix (non-breaking change that fixes an issue)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c2",
+      "kind": "checkbox",
+      "text": "- [ ] New feature (non-breaking change that adds functionality)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "New feature (non-breaking change that adds functionality)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c3",
+      "kind": "checkbox",
+      "text": "- [ ] Breaking change (fix or feature that would cause existing functionality to change)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Breaking change (fix or feature that would cause existing functionality to change)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c4",
+      "kind": "checkbox",
+      "text": "- [ ] Documentation update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Documentation update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c5",
+      "kind": "checkbox",
+      "text": "- [ ] Code refactoring",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Code refactoring"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c6",
+      "kind": "checkbox",
+      "text": "- [ ] Performance improvement",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Performance improvement"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c7",
+      "kind": "checkbox",
+      "text": "- [ ] Test update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Test update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c8",
+      "kind": "checkbox",
+      "text": "- [ ] I have linked the related issue(s) in the description above",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "I have linked the related issue(s) in the description above"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c9",
+      "kind": "checkbox",
+      "text": "- [ ] I have made corresponding changes to the documentation (if applicable)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "I have made corresponding changes to the documentation (if applicable)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c10",
+      "kind": "checkbox",
+      "text": "- [x] I have added tests that prove my fix is effective or that my feature works",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have added tests that prove my fix is effective or that my feature works"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    },
+    {
+      "id": "c11",
+      "kind": "checkbox",
+      "text": "- [ ] I have addressed all Coderabbit comments on this PR",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "I have addressed all Coderabbit comments on this PR"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:a02ec4e653121d0cde2633e5fff65a0c11b07c80099c63e9815fe503ff8a1d64"
+    }
+  ],
+  "observed": {
+    "command": "pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 4192,
+      "passed": 3960,
+      "failed": 197,
+      "skipped": 35,
+      "retried": 0
+    },
+    "tests_digest": "sha256:0ec7baaf757c7a4e00161ea4e011af503c2a26b674b2f0fab46dde44747f9eb3",
+    "duration_s": 85
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "2 changed files not mentioned in the PR body",
+      "evidence": [
+        ".changeset/cuddly-toes-make.md",
+        "mastracode/tui/src/tui/components/subagent-execution.ts"
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

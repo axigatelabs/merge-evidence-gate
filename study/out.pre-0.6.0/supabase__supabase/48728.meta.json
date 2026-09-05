@@ -1,0 +1,21 @@
+{
+  "verdict": "PASS",
+  "skipped": null,
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude",
+      "coauthor-trailer:claude",
+      "body-marker:claude"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [
+    "runner: root has no test command; running the test script of 3 workspace package(s) this PR touches: apps/studio, apps/docs, packages/ui-patterns",
+    "runner: merged 3 per-package report(s) found below the work dir (monorepo)",
+    "baseline: runner: root has no test command; running the test script of 3 workspace package(s) this PR touches: apps/studio, apps/docs, packages/ui-patterns",
+    "baseline: runner: merged 3 per-package report(s) found below the work dir (monorepo)"
+  ],
+  "title": "Merge-Evidence Gate — PASS  (head e6c6517)"
+}

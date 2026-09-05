@@ -1,0 +1,142 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:43:31Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 49137,
+    "head_sha": "f7021f4ee8fffadaa7ebbdbc231dfde7ea84245e",
+    "base_sha": "60be899fdbfbdee2e26c8dae990c6338bc82a8aa",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "command",
+      "text": "`vitest --run components/interfaces/Observability/DatabaseConnections`",
+      "parsed": {
+        "kind": "command",
+        "runner": "vitest",
+        "raw": "vitest --run components/interfaces/Observability/DatabaseConnections",
+        "paths": [],
+        "nameFilters": [
+          "components/interfaces/Observability/DatabaseConnections"
+        ]
+      },
+      "section": "Additional context",
+      "body_hash": "sha256:79e35ca26d0421df9a7cab89dc0db2b8e2a8665a74e235c5cdddec0d284b46c7"
+    },
+    {
+      "id": "c2",
+      "kind": "count",
+      "text": "36 passed",
+      "parsed": {
+        "kind": "count",
+        "passed": 36
+      },
+      "section": "Additional context",
+      "body_hash": "sha256:79e35ca26d0421df9a7cab89dc0db2b8e2a8665a74e235c5cdddec0d284b46c7"
+    },
+    {
+      "id": "c3",
+      "kind": "checkbox",
+      "text": "- [x] Mod+J with the Database Connections feature preview off: no `database_connections_live_mode_clicked` request fired and no UI change; the page stays on the enable-preview gate screen",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Mod+J with the Database Connections feature preview off: no `database_connections_live_mode_clicked` request fired and no UI change; the page stays on the enable-preview gate screen"
+      },
+      "section": "To test",
+      "body_hash": "sha256:79e35ca26d0421df9a7cab89dc0db2b8e2a8665a74e235c5cdddec0d284b46c7"
+    },
+    {
+      "id": "c4",
+      "kind": "checkbox",
+      "text": "- [x] Mod+J with the preview on: the live badge visibly toggles and exactly one event fires per press (`newState: \"disabled\"` on the first press since live mode starts on by default, then `\"enabled\"` on the second)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Mod+J with the preview on: the live badge visibly toggles and exactly one event fires per press (`newState: \"disabled\"` on the first press since live mode starts on by default, then `\"enabled\"` on the second)"
+      },
+      "section": "To test",
+      "body_hash": "sha256:79e35ca26d0421df9a7cab89dc0db2b8e2a8665a74e235c5cdddec0d284b46c7"
+    },
+    {
+      "id": "c5",
+      "kind": "checkbox",
+      "text": "- [x] \"Cancel query\" from the activity row dropdown on an active `pg_sleep(120)` session: `query_cancel_button_clicked` with `custom_properties: {\"activityState\":\"active\",\"isBlocking\":false,\"origin\":\"dropdown_menu\"}`",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "\"Cancel query\" from the activity row dropdown on an active `pg_sleep(120)` session: `query_cancel_button_clicked` with `custom_properties: {\"activityState\":\"active\",\"isBlocking\":false,\"origin\":\"dropdown_menu\"}`"
+      },
+      "section": "To test",
+      "body_hash": "sha256:79e35ca26d0421df9a7cab89dc0db2b8e2a8665a74e235c5cdddec0d284b46c7"
+    },
+    {
+      "id": "c6",
+      "kind": "checkbox",
+      "text": "- [x] \"Cancel query\" inside the \"Confirm to terminate this session?\" dialog: `query_cancel_button_clicked` with `custom_properties: {\"activityState\":\"active\",\"isBlocking\":false,\"origin\":\"terminate_dialog\"}`",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "\"Cancel query\" inside the \"Confirm to terminate this session?\" dialog: `query_cancel_button_clicked` with `custom_properties: {\"activityState\":\"active\",\"isBlocking\":false,\"origin\":\"terminate_dialog\"}`"
+      },
+      "section": "To test",
+      "body_hash": "sha256:79e35ca26d0421df9a7cab89dc0db2b8e2a8665a74e235c5cdddec0d284b46c7"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --run components/interfaces/Observability/DatabaseConnections --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'packages/common' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --run components/interfaces/Observability/DatabaseConnections --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 36,
+      "passed": 36,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:106dff469bdb7fd388283d33ae6143939cea2f1adfde10aa721e7c2ef1730a54",
+    "duration_s": 2,
+    "baseline": {
+      "sha": "60be899fdbfbdee2e26c8dae990c6338bc82a8aa",
+      "exit_code": 1,
+      "totals": {
+        "run": 36,
+        "passed": 36,
+        "failed": 0,
+        "skipped": 0,
+        "retried": 0
+      },
+      "pre_existing": 0,
+      "introduced": []
+    }
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

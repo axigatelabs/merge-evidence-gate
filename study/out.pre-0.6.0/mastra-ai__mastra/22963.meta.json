@@ -1,0 +1,21 @@
+{
+  "verdict": "PASS",
+  "skipped": null,
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "login:devin",
+      "branch-prefix:devin",
+      "body-marker:devin"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [
+    "c1",
+    "c13"
+  ],
+  "notes": [
+    "runner: running the command the PR claimed (c1): `pnpm test`"
+  ],
+  "title": "Merge-Evidence Gate — PASS  (head 1077912)"
+}

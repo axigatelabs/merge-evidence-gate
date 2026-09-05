@@ -1,0 +1,109 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:25:49Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 49650,
+    "head_sha": "73d14e70b8178e7ace6fc5d1ca612c78a8d20ba2",
+    "base_sha": "aeb9511967b3eace8dc3b49aa6ffd583b0bfb9e9",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "branch-prefix:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "command",
+      "text": "`vitest`",
+      "parsed": {
+        "kind": "command",
+        "runner": "vitest",
+        "raw": "vitest",
+        "paths": [],
+        "nameFilters": []
+      },
+      "section": "Testing",
+      "body_hash": "sha256:ebb9ef3557f4ec5d45350966b09d4c8cfc57ad9619580d7f73b3ea9eaaa35231"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'packages/icons' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'packages/api-types' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'apps/docs' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'packages/common' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 6414,
+      "passed": 6365,
+      "failed": 23,
+      "skipped": 26,
+      "retried": 0
+    },
+    "tests_digest": "sha256:c073c1fce15f69ca5a82f1169dd9f215b04c310235fd5fd6ee29f14db578938e",
+    "duration_s": 496,
+    "baseline": {
+      "sha": "aeb9511967b3eace8dc3b49aa6ffd583b0bfb9e9",
+      "exit_code": 1,
+      "totals": {
+        "run": 6399,
+        "passed": 6374,
+        "failed": 23,
+        "skipped": 2,
+        "retried": 0
+      },
+      "pre_existing": 23,
+      "introduced": []
+    }
+  },
+  "diff": {
+    "tests": {
+      "added": [
+        "apps/studio/tests/components/Functions/EdgeFunctionTesterSheet.utils.test.ts"
+      ],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "15 changed files not mentioned in the PR body",
+      "evidence": [
+        "apps/docs/content/guides/platform/upgrading.mdx",
+        "apps/studio/components/interfaces/Functions/httpHeaderAddActions.ts",
+        "apps/studio/components/interfaces/Workers/Workers.types.ts",
+        "apps/studio/components/layouts/Navigation/NavigationBar/NavigationBar.utils.tsx",
+        "apps/studio/data/api.d.ts",
+        "apps/studio/data/sso/sso-config-create-mutation.ts",
+        "apps/studio/data/sso/sso-config-update-mutation.ts",
+        "packages/api-types/types/api-v1.d.ts",
+        "packages/api-types/types/api-v2.d.ts",
+        "packages/api-types/types/platform.d.ts",
+        "packages/common/telemetry-constants.ts",
+        "packages/icons/__registry__/index.tsx",
+        "packages/icons/src/icons/index.ts",
+        "packages/icons/src/icons/workers.ts",
+        "packages/icons/src/raw-icons/workers.svg"
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

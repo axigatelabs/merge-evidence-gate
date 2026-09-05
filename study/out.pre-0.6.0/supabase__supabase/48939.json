@@ -1,0 +1,67 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:47:40Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 48939,
+    "head_sha": "027ba8089225f97d42e904241b7d63f54c1f25d7",
+    "base_sha": "fc5db9bb030e9f0ca3dedab15ef2a5f0d8d9f4f2",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "branch-prefix:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "count",
+      "text": "82 test",
+      "parsed": {
+        "kind": "count",
+        "total": 82
+      },
+      "section": "What is the current behavior?",
+      "body_hash": "sha256:409e308804a8b75a1f7216d236199f26a3bc943d2fbfb807a51687281575c7b0"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 0,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 5223,
+      "passed": 5223,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:a20eca04d2cf6731040c7903cdb50c12be6b4d5c4ad5819338b55af5dd703747",
+    "duration_s": 140
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

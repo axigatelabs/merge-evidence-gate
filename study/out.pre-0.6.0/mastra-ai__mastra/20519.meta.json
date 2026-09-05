@@ -1,0 +1,15 @@
+{
+  "verdict": "PASS",
+  "skipped": null,
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "login:devin",
+      "body-marker:devin"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [],
+  "title": "Merge-Evidence Gate — PASS  (head dc91983)"
+}

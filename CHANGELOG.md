@@ -9,7 +9,18 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.6.0 — unreleased
+## 0.6.1 — unreleased
+
+### Changed
+
+- C3 no longer fires on a test file renamed to another test path. A mastra
+  refactor that renamed `stored-workflow.test.ts` to
+  `dynamic-workflow.test.ts` (seven such files) had come back FAIL for
+  "renaming away" tests it kept. Only a rename out of the test set — coverage
+  moved to a non-test path — is reported; a source file renamed into the test
+  set counts as an added test.
+
+## 0.6.0 — 2026-09-05
 
 ### Added
 

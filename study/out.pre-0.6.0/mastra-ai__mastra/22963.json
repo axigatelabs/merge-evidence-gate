@@ -1,0 +1,240 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T11:45:04Z",
+  "pr": {
+    "repo": "mastra-ai/mastra",
+    "number": 22963,
+    "head_sha": "107791219d50e2d0914ab80f86eebfb2b6d1c9d3",
+    "base_sha": "ffc6440d13b9392b3cf1ff309d3b9cde4a791038",
+    "author": "devin-ai-integration[bot]"
+  },
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "body-marker:devin",
+      "branch-prefix:devin",
+      "login:devin"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "command",
+      "text": "`pnpm test`",
+      "parsed": {
+        "kind": "command",
+        "runner": "npm",
+        "raw": "pnpm test",
+        "paths": [],
+        "nameFilters": []
+      },
+      "section": "Description",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c2",
+      "kind": "checkbox",
+      "text": "- [x] Bug fix (non-breaking change that fixes an issue)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Bug fix (non-breaking change that fixes an issue)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c3",
+      "kind": "checkbox",
+      "text": "- [ ] New feature (non-breaking change that adds functionality)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "New feature (non-breaking change that adds functionality)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c4",
+      "kind": "checkbox",
+      "text": "- [ ] Breaking change (fix or feature that would cause existing functionality to change)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Breaking change (fix or feature that would cause existing functionality to change)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c5",
+      "kind": "checkbox",
+      "text": "- [ ] Documentation update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Documentation update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c6",
+      "kind": "checkbox",
+      "text": "- [ ] Code refactoring",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Code refactoring"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c7",
+      "kind": "checkbox",
+      "text": "- [ ] Performance improvement",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Performance improvement"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c8",
+      "kind": "checkbox",
+      "text": "- [ ] Test update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "Test update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c9",
+      "kind": "checkbox",
+      "text": "- [x] I have linked the related issue(s) in the description above",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have linked the related issue(s) in the description above"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c10",
+      "kind": "checkbox",
+      "text": "- [ ] I have made corresponding changes to the documentation (if applicable)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "I have made corresponding changes to the documentation (if applicable)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c11",
+      "kind": "checkbox",
+      "text": "- [x] I have added tests that prove my fix is effective or that my feature works (`src/browser.test.ts`: stub API parity, stub throws, exports map, static `@duckdb/node-api` import retained for the deployer)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have added tests that prove my fix is effective or that my feature works (`src/browser.test.ts`: stub API parity, stub throws, exports map, static `@duckdb/node-api` import retained for the deployer)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c12",
+      "kind": "checkbox",
+      "text": "- [x] I have addressed all Coderabbit comments on this PR",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have addressed all Coderabbit comments on this PR"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    },
+    {
+      "id": "c13",
+      "kind": "count",
+      "text": "322 tests",
+      "parsed": {
+        "kind": "count",
+        "total": 322
+      },
+      "section": "Validation",
+      "body_hash": "sha256:9a550540187d2f62d6eda0bf0ef3ba65e119f5c4ea2ea80eac8f2305d8f04563"
+    }
+  ],
+  "observed": {
+    "command": "pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 5912,
+      "passed": 5674,
+      "failed": 203,
+      "skipped": 35,
+      "retried": 0
+    },
+    "tests_digest": "sha256:590a2b9b53073908777176182dd358b1a2ec2258071f9ae415e164826be46900",
+    "duration_s": 88,
+    "baseline": {
+      "sha": "ffc6440d13b9392b3cf1ff309d3b9cde4a791038",
+      "exit_code": 1,
+      "totals": {
+        "run": 5673,
+        "passed": 5435,
+        "failed": 203,
+        "skipped": 35,
+        "retried": 0
+      },
+      "pre_existing": 203,
+      "introduced": []
+    }
+  },
+  "diff": {
+    "tests": {
+      "added": [
+        "stores/duckdb/src/browser.test.ts"
+      ],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [
+      "stores/duckdb/package.json"
+    ],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "2 changed files not mentioned in the PR body",
+      "evidence": [
+        ".changeset/tough-shrimps-film.md",
+        "stores/duckdb/tsdown.config.ts"
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

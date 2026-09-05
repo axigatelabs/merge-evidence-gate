@@ -1,0 +1,92 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-04T18:22:10Z",
+  "pr": {
+    "repo": "mastra-ai/mastra",
+    "number": 22252,
+    "head_sha": "73ceaa5babc1e95d21ed8eb155bed268b9d1ae55",
+    "base_sha": "a58483cff1a9d41fce7c931843f48cb0ac450f64",
+    "author": "devin-ai-integration[bot]"
+  },
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "body-marker:devin",
+      "branch-prefix:devin",
+      "login:devin"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "checkbox",
+      "text": "- [x] Bug fix (non-breaking change that fixes an issue)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Bug fix (non-breaking change that fixes an issue)"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:59b581bb8a1c83d6c92687325916672d4622bcc1dcb7e83b335d6e87e9a732a1"
+    },
+    {
+      "id": "c2",
+      "kind": "checkbox",
+      "text": "- [x] I have made corresponding changes to the documentation (if applicable)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have made corresponding changes to the documentation (if applicable)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:59b581bb8a1c83d6c92687325916672d4622bcc1dcb7e83b335d6e87e9a732a1"
+    },
+    {
+      "id": "c3",
+      "kind": "checkbox",
+      "text": "- [ ] I have added tests that prove my fix is effective or that my feature works — existing `tests/navigation.spec.ts` mobile sidebar coverage is unchanged; no new test added per request",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": false,
+        "label": "I have added tests that prove my fix is effective or that my feature works — existing `tests/navigation.spec.ts` mobile sidebar coverage is unchanged; no new test added per request"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:59b581bb8a1c83d6c92687325916672d4622bcc1dcb7e83b335d6e87e9a732a1"
+    }
+  ],
+  "observed": {
+    "command": "pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 5602,
+      "passed": 5367,
+      "failed": 200,
+      "skipped": 35,
+      "retried": 0
+    },
+    "tests_digest": "sha256:a331516f08bfe617572a4cc762948e1d7c0b727569e97fad0d69458597e8cc1b",
+    "duration_s": 75
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

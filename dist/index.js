@@ -83615,7 +83615,18 @@ function analyzeDiff(files, opts) {
         const isDependency = (0, classify_js_1.isDependencyFile)(file.path);
         if (isTest) {
             if (file.status === 'R' && rename !== null) {
-                renamed.push(rename);
+                // Only a rename that takes a file OUT of the test set moves coverage
+                // away (`a_test.go` → `b_helper.go`). A test renamed to another test
+                // path — a refactor — keeps its coverage and is a modified test; a
+                // source file renamed into the test set is an added test.
+                const fromTest = (0, classify_js_1.isTestFile)(rename.from);
+                const toTest = (0, classify_js_1.isTestFile)(rename.to);
+                if (fromTest && !toTest)
+                    renamed.push(rename);
+                else if (!fromTest && toTest)
+                    added.push(rename.to);
+                else
+                    modified.push(rename.to);
             }
             else if (file.status === 'D') {
                 deleted.push(file.path);

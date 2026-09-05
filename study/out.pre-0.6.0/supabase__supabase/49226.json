@@ -1,0 +1,88 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:43:57Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 49226,
+    "head_sha": "93a5a2ecd55c3e25249271b0c2a2064b2c0f9da5",
+    "base_sha": "cb9394246bc1832e9c18eb9a680d5f3c5854440f",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude"
+    ]
+  },
+  "claims": [],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'apps/www' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 0,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 5519,
+      "passed": 5519,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:291579b0831e47991b8d595611b7ccdd2b9e45fe89b34b96d06a7cdfa87c9cd6",
+    "duration_s": 153
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [
+        "apps/studio/components/interfaces/Settings/Logs/LegacyLogsRewriteBanner.test.tsx",
+        "apps/studio/evals/scorer.test.ts",
+        "apps/studio/evals/transcript.test.ts"
+      ],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C3",
+      "severity": "fail",
+      "summary": "3 test files deleted in this PR",
+      "evidence": [
+        "apps/studio/components/interfaces/Settings/Logs/LegacyLogsRewriteBanner.test.tsx",
+        "apps/studio/evals/scorer.test.ts",
+        "apps/studio/evals/transcript.test.ts"
+      ]
+    },
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "13 changed files not mentioned in the PR body",
+      "evidence": [
+        "apps/studio/components/interfaces/Explorer/QueryEditor/QueryResultRenderer.tsx",
+        "apps/studio/components/interfaces/Explorer/QueryEditor/index.tsx",
+        "apps/studio/components/interfaces/SQLEditor/LegacyLogsRewriteBanner.tsx",
+        "apps/studio/components/interfaces/Settings/Logs/LegacyLogsRewriteBanner.tsx",
+        "apps/studio/evals/assistant.eval.ts",
+        "apps/studio/evals/scorer-online.ts",
+        "apps/studio/evals/scorer-wasm.ts",
+        "apps/studio/evals/scorer.ts",
+        "apps/studio/evals/trace-utils.ts",
+        "apps/studio/evals/transcript.ts",
+        "apps/www/_blog/2026-08-18-connect-client-traces-to-your-logs.mdx",
+        "apps/www/public/images/blog/connect-client-traces-to-your-logs/og.png",
+        "apps/www/public/images/blog/connect-client-traces-to-your-logs/thumb.png"
+      ]
+    }
+  ],
+  "verdict": "FAIL",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

@@ -108,13 +108,17 @@ describe('analyzeDiff — a snapshot update', () => {
 describe('analyzeDiff — a renamed test file', () => {
   const result = analyzeDiff(renamedTestPr);
 
-  it('reports from/to rather than a delete plus an add', () => {
-    expect(result.testFiles.renamed).toEqual([
-      { from: 'pkg/store/a_test.go', to: 'pkg/store/b_test.go' },
-    ]);
+  it('a rename within the test set is a modified test, not a delete plus an add and not a removal', () => {
+    expect(result.testFiles.renamed).toEqual([]);
+    expect(result.testFiles.modified).toEqual(['pkg/store/b_test.go']);
     expect(result.testFiles.deleted).toEqual([]);
     expect(result.testFiles.added).toEqual([]);
     expect(result.sourceFiles).toEqual([]);
+  });
+
+  it('a rename OUT of the test set is reported with both endpoints', () => {
+    const away: ChangedFile[] = [{ path: 'pkg/store/b_helper.go', oldPath: 'pkg/store/a_test.go', status: 'R' }];
+    expect(analyzeDiff(away).testFiles.renamed).toEqual([{ from: 'pkg/store/a_test.go', to: 'pkg/store/b_helper.go' }]);
   });
 
   it('falls back to "modified" when a rename arrives without an oldPath', () => {
@@ -124,13 +128,13 @@ describe('analyzeDiff — a renamed test file', () => {
     expect(analysis.testFiles.modified).toEqual(['pkg/store/b_test.go']);
   });
 
-  it('treats a rename INTO a test path as touching tests', () => {
+  it('treats a rename INTO a test path as an added test', () => {
     const promoted: ChangedFile[] = [
       { path: 'pkg/store/store_test.go', oldPath: 'pkg/store/scratch.go', status: 'R' },
     ];
-    expect(analyzeDiff(promoted).testFiles.renamed).toEqual([
-      { from: 'pkg/store/scratch.go', to: 'pkg/store/store_test.go' },
-    ]);
+    const analysis = analyzeDiff(promoted);
+    expect(analysis.testFiles.added).toEqual(['pkg/store/store_test.go']);
+    expect(analysis.testFiles.renamed).toEqual([]);
   });
 });
 

@@ -1,0 +1,21 @@
+{
+  "verdict": "FAIL",
+  "skipped": null,
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude",
+      "branch-prefix:claude",
+      "coauthor-trailer:claude",
+      "body-marker:claude"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [
+    "runner: running the command the PR claimed (c1): `pnpm test:studio`",
+    "runner: running the claimed command in 1 workspace package(s) this PR touches: e2e/studio; no machine-readable reporter could be injected into this command; per-test evidence is unavailable.",
+    "baseline: dependency manifests differ between base and head and installs are disabled; the head failure could not be compared against base 9587eee"
+  ],
+  "title": "Merge-Evidence Gate — FAIL  (head 4bc977d)"
+}

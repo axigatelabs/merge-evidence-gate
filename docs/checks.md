@@ -160,7 +160,9 @@ suite reach the receipt through C1 when the body also names the command.
 ## C3 — tests deleted, renamed away, skipped, or focused
 
 **What it catches.** The cheapest way to turn a red suite green: remove the test,
-skip it, or focus a different one.
+skip it, or focus a different one. A rename counts only when it takes a file
+out of the test set (`a_test.go` → `b_helper.go`); a test renamed to another
+test path in a refactor keeps its coverage and is a modified test file.
 
 **How it is detected.** Three independent sources.
 

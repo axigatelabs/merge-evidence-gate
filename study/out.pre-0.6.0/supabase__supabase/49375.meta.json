@@ -1,0 +1,21 @@
+{
+  "verdict": "FAIL",
+  "skipped": null,
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude",
+      "branch-prefix:claude",
+      "coauthor-trailer:claude",
+      "body-marker:claude"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [
+    "runner: running the command the PR claimed (c1): `vitest`",
+    "runner: running the claimed command in 2 workspace package(s) this PR touches: apps/studio, packages/common",
+    "runner: merged 2 per-package report(s) found below the work dir (monorepo)"
+  ],
+  "title": "Merge-Evidence Gate — FAIL  (head 23e750a)"
+}
