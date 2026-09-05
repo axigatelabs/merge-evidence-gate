@@ -80,13 +80,19 @@ for (const key of repos) {
       else r.confirmed++;
     }
     for (const d of receipt.discrepancies ?? []) bump(r.checks, d.check);
+    // A C1 whose base comparison the HARNESS could not take (offline with
+    // changed dependency manifests) is not comparable here, though the Action
+    // online would have compared it; it is reported, not counted as flagged.
+    const baselineSkippedByHarness = (meta.notes ?? []).some((n) => n.includes('installs are disabled'));
+    if (baselineSkippedByHarness && (receipt.discrepancies ?? []).some((d) => d.check === 'C1')) r.notComparable = (r.notComparable ?? 0) + 1;
     const flaggedPr = (receipt.discrepancies ?? []).some(
-      (d) => d.claim !== undefined || ((d.check === 'C3' || d.check === 'C4') && d.severity !== 'info'),
+      (d) => (d.claim !== undefined && !(d.check === 'C1' && baselineSkippedByHarness)) || ((d.check === 'C3' || d.check === 'C4' || d.check === 'C9') && d.severity !== 'info'),
     );
     if (flaggedPr) r.flagged++;
   }
   rows.push(r);
   for (const k of ['prs', 'inconclusive', 'checkable', 'confirmed', 'unsupported', 'contradicted', 'stated', 'flagged']) all[k] += r[k];
+  all.notComparable = (all.notComparable ?? 0) + (r.notComparable ?? 0);
   for (const [k, v] of Object.entries(r.verdicts)) all.verdicts[k] = (all.verdicts[k] ?? 0) + v;
   for (const [k, v] of Object.entries(r.checks)) all.checks[k] = (all.checks[k] ?? 0) + v;
 }
@@ -104,4 +110,5 @@ console.log(line('**All**', all));
 console.log('\n- **Run inconclusive**: the re-run produced no per-test evidence (the sandbox killed the runner, or a toolchain is missing), so command and count claims are unsupported. Diff-based findings still count; NEUTRAL is the verdict when nothing else fired.');
 console.log('- **Checkable**: command and count claims, and a ticked "tests added" box — the claims a rule can confirm or contradict against the re-run or the diff.');
 console.log('- **Stated, not checkable**: every other checkbox and caveat. Reported so the reader sees how much of a PR body is unverifiable by construction; never scored.');
-console.log('- **PRs flagged**: at least one contradicted claim, or a verification-layer finding (C3/C4) above info. This is the headline, not the share of green receipts.');
+console.log('- **PRs flagged**: at least one contradicted claim, or a verification-layer finding (C3/C4/C9) above info. This is the headline, not the share of green receipts.');
+if ((all.notComparable ?? 0) > 0) console.log(`- **Not comparable here**: ${all.notComparable} C1 finding(s) whose base comparison the offline harness could not take (dependency manifests changed; installs are disabled). Counted as contradicted claims, not as flagged PRs; the Action online would have compared them.`);

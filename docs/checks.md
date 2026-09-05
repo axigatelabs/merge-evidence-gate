@@ -81,8 +81,8 @@ and a plain `cargo test` never has per-test output — but not when the run
 produced no evidence at all (killed, could not start, or the reporter never
 wrote): the claim is then unverifiable.
 
-**Base comparison.** A failed head run is compared against the base commit
-before it counts. The gate checks out the base, reinstalls dependencies only if
+**Base comparison.** A failed head run is compared against the merge base —
+the commit the pull request forked from — before it counts. The gate checks out the base, reinstalls dependencies only if
 a manifest differs, runs the same command, and restores head. A head failure is
 *introduced* when a failing test passes or does not exist at base, or when the
 run failed as a whole (no per-test failure to compare) while base succeeded.
@@ -209,6 +209,16 @@ skip it, or focus a different one.
 *Implemented:* sources 1 and 3, and the reconciliation of source 2.
 *Planned:* the pipeline step that enumerates tests at both commits to feed
 source 2.
+
+**Which diff.** Sources 1 and 3 read the diff between the merge base and head.
+A diff against the base branch's *tip* is only right when the tip is the fork
+point; otherwise everything the branch did since shows up as the pull
+request's doing — an upstream test file added after the fork reads as
+*deleted by this PR*. The gate finds the merge base locally (deepening a
+shallow history twice), takes one the caller supplies (the Action asks the
+API when the checkout is shallow), and when there is still none marks the
+diff `unreliable`: C3's diff sources, C4, C5, C6, C8 do not run, C7 reports
+its claim unverifiable, and the receipt says why.
 
 **Evidence recorded.** For markers: the file path and the marker string verbatim
 (`test/cart.test.js`, `it.only(`). For deleted files: the path. For a test id
@@ -349,6 +359,32 @@ seconds with the file list in front of them.
 fills the whole checklist, including "I have added tests", on a change that
 touched only source. The reviewer reads the checklist as a summary and merges
 untested code believing it was tested.
+
+---
+
+## C9 — tests that pass at base fail at head
+
+**What it catches.** Failures the pull request introduced, whatever its
+description says. A body that claims nothing avoids C1 and C2; it does not
+avoid this.
+
+**How it is detected.** When the head run fails, the same command runs at the
+merge base (see C1, "Base comparison"). Every head failure whose test id passes
+at base, or does not exist there, is *introduced*. C9 fires when at least one
+exists; a base run that produced no evidence proves nothing and C9 stays
+silent. `observed.baseline.introduced` on the receipt lists the ids.
+
+**Evidence recorded.** The introduced test ids (capped at ten) and the base
+commit's exit code and failure count.
+
+**Default severity.** `needs-human`. A test can fail at head for an honest
+reason the base did not exercise (a genuinely new flaky test, a platform
+difference), so a human decides; the ids are on the receipt.
+
+**Failure mode it prevents.** A change that breaks four tests in a package
+whose suite the author never ran, described with a checklist and no test
+claim. Before C9 the receipt said PASS; the four names were on it, but nothing
+asked anyone to look.
 
 ---
 

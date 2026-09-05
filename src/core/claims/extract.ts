@@ -220,6 +220,12 @@ const QUOTED_SPAN = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
 const COMPARISON_LINE =
   /\b(?:observed|claimed|at base|at head|vs\.?|versus|previously|before this|before the fix|under \d)\b|\bhead\b.*\bbase\b|\bbase\b.*\bhead\b/i;
 
+/** "404 error", "500 errors": an HTTP status, not a count of failing tests. */
+function isHttpStatus(pair: RegExpMatchArray): boolean {
+  const n = Number(pair[1]);
+  return /^errors?$/i.test(pair[2] ?? '') && n >= 100 && n <= 599;
+}
+
 /** The `[start, end)` ranges of every quoted span on the line. */
 function quotedRanges(line: string): Array<[number, number]> {
   return [...line.matchAll(QUOTED_SPAN)].map((m) => [m.index, m.index + m[0].length]);
@@ -385,7 +391,9 @@ function collectFromLine(line: string, section: string | undefined): Candidate[]
   const pairs = COMPARISON_LINE.test(line)
     ? []
     : [...line.matchAll(COUNT_TOKEN)].filter(
-        (pair) => !quoted.some(([start, end]) => pair.index >= start && pair.index < end),
+        (pair) =>
+          !quoted.some(([start, end]) => pair.index >= start && pair.index < end) &&
+          !isHttpStatus(pair),
       );
   for (let i = 0; i < pairs.length; ) {
     const first = pairs[i];

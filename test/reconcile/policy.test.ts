@@ -16,6 +16,7 @@ describe('DEFAULT_POLICY', () => {
       C6: 'needs-human',
       C7: 'needs-human',
       C8: 'info',
+      C9: 'needs-human',
     });
   });
 });
@@ -94,7 +95,7 @@ describe('parsePolicyYaml', () => {
 
   it('ignores unknown keys, unknown checks, and invalid severities', () => {
     const policy = parsePolicyYaml(
-      ['future-key: 12', 'severity:', '  C9: fail', '  C3: shout', '  C4: info'].join('\n'),
+      ['future-key: 12', 'severity:', '  C12: fail', '  C3: shout', '  C4: info'].join('\n'),
     );
     expect(policy.severity).toEqual({ C4: 'info' });
     expect(Object.keys(policy)).toEqual(['version', 'severity']);

@@ -89,7 +89,8 @@ describe('C1 with a baseline', () => {
 
   it('fires for a failure the PR introduced, listing only that test and the base facts', () => {
     const result = run({ ...headRun(true), baseline: base() });
-    expect(result.discrepancies.map((d) => d.check)).toEqual(['C1']);
+    // C9 reports the same introduced failure on its own; C1 is about the claim.
+    expect(result.discrepancies.map((d) => d.check)).toEqual(['C1', 'C9']);
     const [hit] = result.discrepancies;
     expect(hit?.evidence).toContain('introduced: src/b.test.ts::subtracts');
     expect(hit?.evidence).not.toContain('introduced: obs/import.test.ts::imports arize');

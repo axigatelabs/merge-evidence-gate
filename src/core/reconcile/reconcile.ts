@@ -330,15 +330,22 @@ function checkC2(
       continue;
     }
 
+    // With a baseline, failures the base commit shows too are the runner's
+    // environment, not the run the author reported: they count as passed for
+    // the comparison and only introduced failures count as failed.
+    const split = partitionFailures(observed);
+    const failedHere = split === undefined ? observed.totals.failed : split.introduced.length;
+    const passedHere =
+      split === undefined ? observed.totals.passed : observed.totals.passed + split.preExisting.length;
     const comparisons: Array<{ label: string; claimed: number; observed: number }> = [];
     if (parsed.total !== undefined && parsed.total !== observed.totals.run) {
       comparisons.push({ label: 'total', claimed: parsed.total, observed: observed.totals.run });
     }
-    if (parsed.passed !== undefined && parsed.passed !== observed.totals.passed) {
-      comparisons.push({ label: 'passed', claimed: parsed.passed, observed: observed.totals.passed });
+    if (parsed.passed !== undefined && parsed.passed !== passedHere) {
+      comparisons.push({ label: 'passed', claimed: parsed.passed, observed: passedHere });
     }
-    if (parsed.failed !== undefined && parsed.failed !== observed.totals.failed) {
-      comparisons.push({ label: 'failed', claimed: parsed.failed, observed: observed.totals.failed });
+    if (parsed.failed !== undefined && parsed.failed !== failedHere) {
+      comparisons.push({ label: 'failed', claimed: parsed.failed, observed: failedHere });
     }
     if (comparisons.length === 0) continue;
 
@@ -351,10 +358,15 @@ function checkC2(
         first === undefined
           ? 'Claimed counts differ from the observed run'
           : `Claimed ${first.claimed} ${first.label}; ${first.observed} observed`,
-      evidence: comparisons.flatMap((c) => [
-        `claimed ${c.label}=${c.claimed}`,
-        `observed ${c.label === 'total' ? 'run' : c.label}=${c.observed}`,
-      ]),
+      evidence: [
+        ...comparisons.flatMap((c) => [
+          `claimed ${c.label}=${c.claimed}`,
+          `observed ${c.label === 'total' ? 'run' : c.label}=${c.observed}`,
+        ]),
+        ...(split === undefined || split.preExisting.length === 0
+          ? []
+          : [`${split.preExisting.length} failure(s) also present at base, not counted`]),
+      ],
     });
   }
 
@@ -431,7 +443,9 @@ function checkC7(
   if (eligible.length === 0) return { discrepancies: [], unverifiable: [] };
 
   const changed = diff.fileCount ?? changedFileCount(diff);
-  if (changed === 0) return { discrepancies: [], unverifiable: eligible.map((claim) => claim.id) };
+  if (changed === 0 || diff.unreliable === true) {
+    return { discrepancies: [], unverifiable: eligible.map((claim) => claim.id) };
+  }
 
   const touched =
     diff.testFiles.added.length + diff.testFiles.modified.length + diff.testFiles.renamed.length;
@@ -482,6 +496,10 @@ function checkC3(diff: DiffAnalysis, observed: ObservedRun, policy: Policy): Dis
     });
   }
 
+  // Everything below reads the diff; a two-dot list without a merge base
+  // would show upstream additions as this PR's deletions.
+  if (diff.unreliable === true) return discrepancies;
+
   const deleted = sorted(diff.testFiles.deleted);
   if (deleted.length > 0) {
     discrepancies.push({
@@ -529,6 +547,7 @@ function checkC3(diff: DiffAnalysis, observed: ObservedRun, policy: Policy): Dis
 
 /** C4 — CI workflow, coverage threshold, or agent-rules file edited. */
 function checkC4(diff: DiffAnalysis, policy: Policy): Discrepancy[] {
+  if (diff.unreliable === true) return [];
   const severity = resolveSeverity('C4', policy);
   return [...diff.verificationLayerEdits]
     .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.reason < b.reason ? -1 : 1))
@@ -550,6 +569,7 @@ function mentionedInBody(path: string, body: string): boolean {
 
 /** C5 — lockfile / dependency manifest changed without being mentioned. */
 function checkC5(diff: DiffAnalysis, pr: PullRequestFacts, policy: Policy): Discrepancy[] {
+  if (diff.unreliable === true) return [];
   const files = sorted(diff.dependencyFiles);
   if (files.length === 0) return [];
   if (files.some((file) => mentionedInBody(file, pr.body))) return [];
@@ -565,6 +585,7 @@ function checkC5(diff: DiffAnalysis, pr: PullRequestFacts, policy: Policy): Disc
 
 /** C6 — snapshot or golden files updated. */
 function checkC6(diff: DiffAnalysis, policy: Policy): Discrepancy[] {
+  if (diff.unreliable === true) return [];
   const files = sorted(diff.snapshotFiles);
   if (files.length === 0) return [];
   return [
@@ -579,6 +600,7 @@ function checkC6(diff: DiffAnalysis, policy: Policy): Discrepancy[] {
 
 /** C8 — files changed outside what the PR describes (informational). */
 function checkC8(diff: DiffAnalysis, pr: PullRequestFacts, policy: Policy): Discrepancy[] {
+  if (diff.unreliable === true) return [];
   const allow = policy.scopeAllow ?? [];
   const unmentioned = sorted(diff.sourceFiles).filter(
     (file) => !mentionedInBody(file, pr.body) && !matchesAnyGlob(file, allow),
@@ -590,6 +612,30 @@ function checkC8(diff: DiffAnalysis, pr: PullRequestFacts, policy: Policy): Disc
       severity: resolveSeverity('C8', policy),
       summary: `${unmentioned.length} changed file${unmentioned.length === 1 ? '' : 's'} not mentioned in the PR body`,
       evidence: capped(unmentioned, MAX_SCOPE_FILES),
+    },
+  ];
+}
+
+/**
+ * C9 — tests that pass at the base commit fail at head: the pull request
+ * introduced failures, whatever its description says. Needs the base run;
+ * a base run without evidence proves nothing.
+ */
+function checkC9(observed: ObservedRun, policy: Policy): Discrepancy[] {
+  const baseline = observed.baseline;
+  const split = partitionFailures(observed);
+  if (baseline === undefined || baseline.noEvidence === true || split === undefined) return [];
+  if (split.introduced.length === 0) return [];
+  const n = split.introduced.length;
+  return [
+    {
+      check: 'C9',
+      severity: resolveSeverity('C9', policy),
+      summary: `${n} test${n === 1 ? '' : 's'} pass${n === 1 ? 'es' : ''} at base ${baseline.sha.slice(0, 7)} and fail${n === 1 ? 's' : ''} at head`,
+      evidence: [
+        ...capped(split.introduced.map((id) => `introduced: ${id}`), MAX_EVIDENCE),
+        `base ${baseline.sha.slice(0, 7)}: exit_code=${baseline.exitCode}, ${baseline.totals.failed} failed there`,
+      ],
     },
   ];
 }
@@ -647,6 +693,7 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
     ...checkC5(diff, pr, policy),
     ...checkC6(diff, policy),
     ...c7.discrepancies,
+    ...checkC9(observed, policy),
     ...checkC8(diff, pr, policy),
   ];
 

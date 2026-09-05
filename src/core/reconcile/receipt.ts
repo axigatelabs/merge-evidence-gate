@@ -101,6 +101,7 @@ export function buildReceipt(input: BuildReceiptInput): Receipt {
       sensitive_paths: sortUnique(diff.verificationLayerEdits.map((edit) => edit.file)),
       lockfiles: sortUnique(diff.dependencyFiles),
       snapshots: sortUnique(diff.snapshotFiles),
+      ...(diff.unreliable === true ? { unreliable: true } : {}),
     },
     discrepancies: discrepancies.map((d) => ({ ...d, evidence: [...d.evidence] })),
     verdict,

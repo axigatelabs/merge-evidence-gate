@@ -9,7 +9,40 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.5.1 — unreleased
+## 0.6.0 — unreleased
+
+### Added
+
+- **C9 — tests that pass at base fail at head.** The base comparison already
+  split head failures into introduced and pre-existing; introduced failures
+  now stand on their own as a `needs-human` finding, whatever the description
+  claimed. A supabase pull request that broke four tests and claimed nothing
+  had come back PASS with the four names on the receipt.
+- `PullRequestFacts.mergeBaseSha` (additive): the commit the change forked
+  from, when the caller knows it. The Action asks the compare API for it when
+  the checkout is shallow; the CLI takes `--merge-base`; the study harness
+  records it. The diff and the base run are taken against it.
+
+### Changed
+
+- **The diff is taken against the merge base, never blindly against the base
+  tip.** Four supabase pull requests came back FAIL on C3 for "deleting" test
+  files that the base branch had added after the fork point: a two-dot diff
+  against the base tip. The gate now finds the merge base locally (deepening a
+  shallow history twice), uses one it is given, and when there is still none
+  marks the diff `unreliable` — C3's diff sources, C4, C5, C6 and C8 do not run
+  on it, C7 reports its claim unverifiable, and the receipt says why. With
+  `fetch-depth: 0` nothing changes.
+- The base comparison runs at the merge base rather than the base tip.
+- C2 with a baseline compares against introduced failures: "171 tests, 0
+  failures" matches a run whose 11 failures all fail at base too, and the
+  evidence says how many were not counted.
+- A claimed command that names paths (`vitest --run components/x`) runs only
+  in the touched packages where those paths exist.
+- "404 error" / "500 errors" — an HTTP status — is no longer read as a count
+  of failing tests.
+
+## 0.5.1 — 2026-09-05
 
 ### Changed
 
