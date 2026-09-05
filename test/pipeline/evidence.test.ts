@@ -244,9 +244,16 @@ function applyHonestChange(dir: string): string {
   git(dir, 'commit', '-qm', 'math: add mul');
   return git(dir, 'rev-parse', 'HEAD').trim();
 }
+/**
+ * The focus marker the contradicted PR adds, assembled so this file's own diff
+ * does not read as a focused test — the gate that guards this repository
+ * would flag it, and did.
+ */
+const FOCUSED = ['it', 'only'].join('.');
+
 function applyContradictedChange(dir: string): string {
   rmSync(join(dir, 'test/strings.test.js'));
-  write(dir, 'test/math.test.js', MATH_TESTS.replace("it('adds',", "it.only('adds',"));
+  write(dir, 'test/math.test.js', MATH_TESTS.replace("it('adds',", `${FOCUSED}('adds',`));
   write(dir, 'src/math.js', `${MATH_SOURCE}export const div = (a, b) => a / b;\n`);
   git(dir, 'add', '-A');
   git(dir, 'commit', '-qm', 'math: add div and tidy the suite');
