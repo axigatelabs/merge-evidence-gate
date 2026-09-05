@@ -1,7 +1,10 @@
 # The Claim–Reality Gap — results
 
-*Status: in progress. Numbers below are filled in from `study/out/` by
-`node study/summarize.mjs`; this file is regenerated as batches complete.*
+*Status: the first sample is complete — 140 pull requests from four
+repositories, every receipt regenerated under Merge-Evidence Gate 0.8.0 on
+2026-09-05. Numbers are produced from `study/out/` by
+`node study/summarize.mjs`; the tables and the per-repository sections below
+are kept in step with it.*
 
 ## What was measured
 
@@ -66,13 +69,17 @@ build cannot run in the sandbox image, so every row would be inconclusive.
 <!-- summarize:begin -->
 | Repository | PRs | Run inconclusive | Verdicts | Checkable claims | Confirmed | Unsupported | Contradicted | Stated, not checkable | PRs flagged | Checks fired |
 |---|---:|---:|---|---:|---:|---:|---:|---:|---:|---|
-| mastra-ai/mastra (devin:40) | 40 | 0 | PASS:40 | 13 | 77% | 23% | 0% | 226 | 0 | C8:23 |
-| **All** | 40 | 0 | PASS:40 | 13 | 77% | 23% | 0% | 226 | 0 | C8:23 |
+| BerriAI/litellm (devin:40) | 40 | 38 | FAIL:2 NEUTRAL:36 PASS:2 | 53 | 81% | 19% | 0% | 221 | 2 | C3:1 C4:1 C8:34 |
+| Infisical/infisical (claude:30) | 30 | 29 | NEUTRAL:29 PASS:1 | 3 | 0% | 100% | 0% | 320 | 0 | C8:22 |
+| mastra-ai/mastra (devin:40) | 40 | 0 | NEEDS_HUMAN:1 PASS:39 | 13 | 77% | 23% | 0% | 226 | 0 | C6:1 C8:31 |
+| supabase/supabase (claude:30) | 30 | 1 | FAIL:2 NEUTRAL:1 PASS:27 | 13 | 46% | 46% | 8% | 5 | 1 | C1:1 C3:1 C8:8 |
+| **All** | 140 | 68 | FAIL:4 NEEDS_HUMAN:1 NEUTRAL:66 PASS:69 | 82 | 72% | 27% | 1% | 772 | 3 | C1:1 C3:2 C4:1 C6:1 C8:95 |
 
 - **Run inconclusive**: the re-run produced no per-test evidence (the sandbox killed the runner, or a toolchain is missing), so command and count claims are unsupported. Diff-based findings still count; NEUTRAL is the verdict when nothing else fired.
 - **Checkable**: command and count claims, and a ticked "tests added" box — the claims a rule can confirm or contradict against the re-run or the diff.
 - **Stated, not checkable**: every other checkbox and caveat. Reported so the reader sees how much of a PR body is unverifiable by construction; never scored.
-- **PRs flagged**: at least one contradicted claim, or a verification-layer finding (C3/C4) above info. This is the headline, not the share of green receipts.
+- **PRs flagged**: at least one contradicted claim, or a verification-layer finding (C3/C4/C9) above info. This is the headline, not the share of green receipts.
+- **Not comparable here**: 1 C1 finding(s) whose base comparison the offline harness could not take (dependency manifests changed; installs are disabled). Counted as contradicted claims, not as flagged PRs; the Action online would have compared them.
 <!-- summarize:end -->
 
 ### mastra-ai/mastra — 40 Devin pull requests
@@ -141,11 +148,42 @@ nothing; C9 (0.6.0) now reports that shape on its own.
 
 ### BerriAI/litellm — 40 Devin pull requests
 
-_(re-running under 0.7.0; filled in when the batch completes)_
+litellm's own test command is `make test`, and that target installs
+dependencies from the network before it runs pytest. In the sealed container
+it exits before producing any per-test evidence, so 38 of 40 rows are
+**run-inconclusive** for a reason that is the sandbox's, not the repository's
+or the agent's; online, the Action runs that target as written. (The full
+unit suite also needs a system library the sandbox image lacks, `libsndfile`,
+so a direct `pytest tests/test_litellm` aborts at collection.) Two pull
+requests name a concrete command in their body — `uv run pytest
+tests/test_litellm/…` — and the gate ran exactly those: #39467, 61 tests
+passing, its "61 passed" **confirmed**; #39687, 141 tests passing.
+
+The diff-based checks need no run, and here they carry the batch. Every
+litellm body ticks the template line "I have added meaningful tests" (39 of
+40); each of those ticks is **confirmed** by a test file the diff adds or
+modifies. Two pull requests are **flagged**, and both are real: #39695 edits a
+CI workflow (`.github/workflows/test-terraform-modules.yml`, C4), and #39717
+adds a `pytest.skip(` to a test file (C3). Both are exactly the edits a
+reviewer wants pointed at. Under 0.6.x, before "before/after" sections were
+recognised, #39467 had also carried two C2 findings — one from a count in a
+"Before (sha)" section that describes the bug, one from a count that belongs
+to a second command — and 0.8.0 removed both.
 
 ### Infisical/infisical — 30 Claude Code pull requests
 
-_(re-running under 0.7.0; filled in when the batch completes)_
+Infisical is two projects side by side, `backend/` and `frontend/`, each with
+its own lockfile. 23 of the 30 pull requests touch only `frontend/`, which has
+no test scripts at all; for those the gate has nothing to run and says so
+(**NEUTRAL**, "no test command"). Seven touch `backend/`, whose `test` script
+is npm's placeholder while the real suite is `test:unit` — a shape the gate
+learned to follow in 0.7.0, with the package's own dependencies installed in
+0.7.1. One of the seven ran end to end: #7904, 1,520 backend unit tests, one
+failure that also fails at the merge base and is excused. The other six could
+not install `backend/`'s dependencies in this sandbox — its lockfile carries no
+arm64 build of one optional package, and another needs a native `odbc` build
+the image cannot do — so they are **run-inconclusive** here and would run on
+GitHub's x64 runners. No Infisical pull request is flagged.
 
 ## Reading the numbers honestly
 
