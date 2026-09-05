@@ -47,6 +47,12 @@ export function resolveSeverity(check: CheckId, policy: Policy): Severity {
 export interface ParsedPolicy extends Policy {
   /** `test-command:` — the command to execute instead of auto-detecting one. */
   testCommand?: string;
+  /**
+   * `base-comparison:` — `auto` (default) re-runs the command at the base
+   * commit when the head run fails, so failures the repository already had
+   * are not counted against the pull request; `never` skips that run.
+   */
+  baseComparison?: 'auto' | 'never';
 }
 
 const SEVERITIES: readonly Severity[] = ['fail', 'needs-human', 'info'];
@@ -166,6 +172,11 @@ export function parsePolicyYaml(text: string): ParsedPolicy {
       case 'test-command': {
         const value = scalar(entry.value);
         if (value !== '') policy.testCommand = value;
+        break;
+      }
+      case 'base-comparison': {
+        const value = scalar(entry.value).toLowerCase();
+        if (value === 'auto' || value === 'never') policy.baseComparison = value;
         break;
       }
       case 'agents-only': {

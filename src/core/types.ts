@@ -126,6 +126,22 @@ export interface ExecutedTest {
   invocations?: number;
 }
 
+/**
+ * The same command executed at the base commit, in the same environment. Taken
+ * only when the head run failed with evidence — never when it passed, so a
+ * baseline can only ever turn a failure into "the repository already fails".
+ */
+export interface BaselineRun {
+  /** Commit the baseline ran at (the pull request's base). */
+  sha: string;
+  exitCode: number;
+  totals: ObservedRun['totals'];
+  /** Ids of tests that failed at base. */
+  failed: string[];
+  /** True when the base run itself produced no per-test evidence (killed, report missing). */
+  noEvidence?: boolean;
+}
+
 export interface ObservedRun {
   /** The exact command executed, after reporter injection. */
   command: string;
@@ -155,6 +171,12 @@ export interface ObservedRun {
    * says zero tests ran — that is evidence.
    */
   reportMissing?: boolean;
+  /**
+   * The same command run at the base commit, present when the head run failed
+   * and the gate could take one. Lets C1 tell a failure this PR introduced from
+   * one the repository already had on a clean runner.
+   */
+  baseline?: BaselineRun;
   /** Raw reporter output path for the receipt artifact (never inlined). */
   reportPath?: string;
 }
@@ -270,6 +292,19 @@ export interface Receipt {
      * tests ran is evidence and does not set this.
      */
     no_evidence?: boolean;
+    /**
+     * Present when the head run failed and the gate re-ran the same command at
+     * the base commit. `introduced` lists head failures that pass (or do not
+     * exist) at base — the ones this pull request is answerable for;
+     * `pre_existing` counts head failures that fail at base too.
+     */
+    baseline?: {
+      sha: string;
+      exit_code: number;
+      totals: ObservedRun['totals'];
+      pre_existing: number;
+      introduced: string[];
+    };
   };
   diff: {
     tests: { added: string[]; deleted: string[]; skipped_added: string[]; focused: string[] };

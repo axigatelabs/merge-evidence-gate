@@ -21,7 +21,7 @@ import type {
   Receipt,
   Verdict,
 } from '../types.js';
-import { hasNoEvidence, missingAtHead } from './reconcile.js';
+import { hasNoEvidence, missingAtHead, partitionFailures } from './reconcile.js';
 
 export interface BuildReceiptInput {
   pr: PullRequestFacts;
@@ -87,6 +87,7 @@ export function buildReceipt(input: BuildReceiptInput): Receipt {
       duration_s: Math.round(observed.durationMs / 1000),
       ...(noTestCommand ? { no_test_command: true } : {}),
       ...(hasNoEvidence(observed) ? { no_evidence: true } : {}),
+      ...baselineProjection(observed),
     },
     diff: {
       tests: {
@@ -105,6 +106,22 @@ export function buildReceipt(input: BuildReceiptInput): Receipt {
     verdict,
     policy_version: policy.version,
     signature: { predicate_type: PREDICATE_TYPE },
+  };
+}
+
+/** The base run, with head failures split into introduced vs already-failing. */
+function baselineProjection(observed: ObservedRun): Pick<Receipt['observed'], 'baseline'> {
+  const baseline = observed.baseline;
+  const split = partitionFailures(observed);
+  if (baseline === undefined || split === undefined) return {};
+  return {
+    baseline: {
+      sha: baseline.sha,
+      exit_code: baseline.exitCode,
+      totals: { ...baseline.totals },
+      pre_existing: split.preExisting.length,
+      introduced: sortUnique(split.introduced),
+    },
   };
 }
 

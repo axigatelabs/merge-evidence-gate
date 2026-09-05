@@ -92,11 +92,10 @@ The one **contradicted** claim, and the one flagged PR, is `pnpm test` on
 caveat above. The same failures appear on every mastra re-run in the sample —
 between 162 and 206 per run, dominated by package-import and network-dependent
 tests that cannot pass with the network off — so this is "not reproduced on a
-clean runner", not evidence that the claim was false. Base-commit comparison
-(planned) will separate failures the PR introduced from failures the
-repository already had; until then a C1 on a repository with environment-bound
-tests needs a human, and the receipt gives that human the exact failing test
-ids.
+clean runner", not evidence that the claim was false. This row was produced by
+0.2.0; 0.3.0 added base-commit comparison, which re-runs the command at the
+base and attributes only introduced failures to the PR — the re-run of #22963
+under 0.3.0 is recorded below.
 
 No PR in the sample deleted, skipped, or focused a test, edited CI, or touched a
 lockfile without saying so. The 23 scope notes (C8, informational) are
@@ -113,7 +112,9 @@ changeset files and build configs the bodies do not name.
 - **A failing suite is not, by itself, a contradiction.** Many repositories
   fail some tests on a clean runner (network-dependent tests, missing keys).
   The gate only counts a failure against a PR when the PR *claimed* the run
-  passed. Base-commit comparison is planned for v1.1.
+  passed, and — since 0.3.0 — only for failures the base commit does not show:
+  the same command is re-run at base, and a test that fails at both commits is
+  reported as already failing, not as a contradiction.
 - **Where "Unsupported" comes from.** One shape so far, and it is deliberate:
   a count that describes one package ("1480 tests", "322 tests") while the gate
   ran the whole monorepo. The run's totals say nothing about that subset, so

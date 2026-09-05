@@ -91,18 +91,34 @@ function claimLines(receipt: Receipt, unverifiable: readonly string[]): string[]
     if (command !== undefined) {
       rendered.add(claim.id);
       const label = `\`${command.raw}\``;
-      if (unmapped.has(claim.id)) {
-        lines.push(clamp(`- ${label} — unverifiable`, MAX_LINE_CHARS));
-        continue;
-      }
+      const baseline = receipt.observed.baseline;
       const failure = receipt.discrepancies.find((d) => d.check === 'C1' && d.claim === claim.id);
       if (failure !== undefined) {
+        const attribution =
+          baseline === undefined
+            ? ''
+            : ` — ${baseline.introduced.length} introduced by this PR, ${baseline.pre_existing} also failing at base ${baseline.sha.slice(0, 7)}`;
         lines.push(
           clamp(
-            `- ${label} — ran ✘  exit ${receipt.observed.exit_code}, ${totals.failed} failed`,
+            `- ${label} — ran ✘  exit ${receipt.observed.exit_code}, ${totals.failed} failed${attribution}`,
             MAX_LINE_CHARS,
           ),
         );
+        continue;
+      }
+      if (unmapped.has(claim.id) && baseline !== undefined && receipt.observed.exit_code !== 0) {
+        // Mapped, failed, and excused by the base run: the repository fails on
+        // a clean runner with or without this PR.
+        lines.push(
+          clamp(
+            `- ${label} — ran ✘  exit ${receipt.observed.exit_code}, ${totals.failed} failed — all also fail at base ${baseline.sha.slice(0, 7)}; nothing introduced by this PR`,
+            MAX_LINE_CHARS,
+          ),
+        );
+        continue;
+      }
+      if (unmapped.has(claim.id)) {
+        lines.push(clamp(`- ${label} — unverifiable`, MAX_LINE_CHARS));
         continue;
       }
       lines.push(
@@ -211,6 +227,16 @@ export function renderComment(receipt: Receipt, opts?: RenderOptions): RenderedC
     body.push(
       '- no test command found — claims about the run are unverifiable; ' +
         (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'),
+    );
+  }
+  const baseline = receipt.observed.baseline;
+  if (baseline !== undefined && !receipt.claims.some((c) => c.parsed.kind === 'command')) {
+    // No command claim carries the comparison, so say it once up front.
+    body.push(
+      `- the suite fails at head (${receipt.observed.totals.failed} failed) and at base ${baseline.sha.slice(0, 7)} (${baseline.totals.failed} failed): ` +
+        (baseline.introduced.length === 0
+          ? 'nothing introduced by this PR'
+          : `${baseline.introduced.length} introduced by this PR`),
     );
   }
   if (receipt.observed.no_evidence === true) {

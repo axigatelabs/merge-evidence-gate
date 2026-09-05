@@ -62,6 +62,7 @@ interface Inputs {
   testCommand: string;
   agentsOnly: boolean | undefined;
   failOn: 'fail' | 'needs-human';
+  baseComparison: 'auto' | 'never';
   comment: boolean;
   uploadReceipt: boolean;
   policyFile: string;
@@ -93,11 +94,16 @@ function readInputs(): Inputs {
   if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human') {
     core.warning(`input 'fail-on': expected 'fail' or 'needs-human', got '${failOnRaw}' — using 'fail'`);
   }
+  const baseRaw = core.getInput('base-comparison').trim().toLowerCase();
+  if (baseRaw !== '' && baseRaw !== 'auto' && baseRaw !== 'never') {
+    core.warning(`input 'base-comparison': expected 'auto' or 'never', got '${baseRaw}' — using 'auto'`);
+  }
   return {
     token: core.getInput('github-token'),
     testCommand: core.getInput('test-command').trim(),
     agentsOnly: optionalBoolInput('agents-only'),
     failOn: failOnRaw === 'needs-human' ? 'needs-human' : 'fail',
+    baseComparison: baseRaw === 'never' ? 'never' : 'auto',
     comment: boolInput('comment', true),
     uploadReceipt: boolInput('upload-receipt', true),
     policyFile: core.getInput('policy-file').trim() || '.merge-evidence.yml',
@@ -273,6 +279,7 @@ export async function run(): Promise<void> {
     policy,
     testCommand: inputs.testCommand,
     ...(inputs.agentsOnly === undefined ? {} : { agentsOnly: inputs.agentsOnly }),
+    baseComparison: inputs.baseComparison,
   });
 
   if (result.skipped === 'not-agent') {

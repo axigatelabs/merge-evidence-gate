@@ -22,6 +22,10 @@ inputs:
     description: 'Verdict at or above which the job fails: "fail" (default) or "needs-human".'
     required: false
     default: 'fail'
+  base-comparison:
+    description: 'When the head run fails, re-run the same command at the base commit so failures the repository already had are not counted against the PR: "auto" (default) or "never".'
+    required: false
+    default: 'auto'
   comment:
     description: 'Post/update the sticky receipt comment on the PR.'
     required: false

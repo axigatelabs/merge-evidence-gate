@@ -9,6 +9,27 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
+## 0.3.0 — unreleased
+
+### Added
+
+- **Base-commit comparison.** When the head run fails with evidence, the gate
+  runs the same command at the base commit in the same checkout (reinstalling
+  dependencies only when a manifest differs, restoring head afterwards) and
+  splits the head failures into *introduced* — failing at head, passing or
+  absent at base — and *pre-existing*. C1 fires only for introduced failures;
+  when nothing was introduced the claim is reported unverifiable ("not
+  reproduced on a clean runner") and the receipt's new `observed.baseline`
+  carries the base facts. A passing head run is never re-run, so the
+  comparison can only excuse a failure, never manufacture one; a base run that
+  produced no evidence excuses nothing. Input `base-comparison: auto|never`,
+  policy key `base-comparison`, CLI `--base-comparison`. Every re-run in the
+  first study batch (40 Devin PRs on mastra) failed 162–206 environment-bound
+  tests with or without the PR; this is what stops those from reading as
+  contradictions.
+- `ObservedRun.baseline` / `Receipt.observed.baseline` (additive contract
+  fields); `installPlan` and `installDependencies` take `{ force: true }`.
+
 ## 0.2.0 — 2026-09-05
 
 Findings from the first real batch of the Claim–Reality Gap study (40 public
