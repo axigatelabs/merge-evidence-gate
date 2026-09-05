@@ -56,7 +56,10 @@ Agents have no intent; nothing here says "lie". A claim is *not reproduced*,
 | mastra-ai/mastra | Devin | 40 | since 2026-06-05 |
 | supabase/supabase | Claude Code (GitHub app) | 30 | since 2026-06-05 |
 | BerriAI/litellm | Devin | 40 | since 2026-06-05 |
-| envoyproxy/envoy | Copilot coding agent | 30 | since 2026-06-05 |
+| Infisical/infisical | Claude Code (GitHub app) | 30 | since 2026-06-05 |
+
+envoyproxy/envoy (Copilot, 30 PRs) was fetched and set aside: its C++/Bazel
+build cannot run in the sandbox image, so every row would be inconclusive.
 
 ## Table
 
@@ -72,13 +75,11 @@ Agents have no intent; nothing here says "lie". A claim is *not reproduced*,
 - **PRs flagged**: at least one contradicted claim, or a verification-layer finding (C3/C4) above info. This is the headline, not the share of green receipts.
 <!-- summarize:end -->
 
-### mastra-ai/mastra — 40 Devin pull requests (2026-09-04)
+### mastra-ai/mastra — 40 Devin pull requests
 
 Every one of the 40 re-runs executed the whole monorepo suite offline —
-between 3,400 and 5,900 tests per PR, about four minutes each including a
-frozen install from a warm store. Nothing came back inconclusive once the
-sandbox's memory ceiling was set per container (the first pass lost 14 of 40
-to the kernel's OOM killer; see "Reproduce").
+between 3,400 and 6,400 tests per PR, about four minutes each including a
+frozen install from a warm store — and all 40 are conclusive.
 
 What the bodies contain is the finding. Devin fills the repository's PR
 template: across 40 bodies there are 226 ticked or unticked template lines and
@@ -86,25 +87,65 @@ template: across 40 bodies there are 226 ticked or unticked template lines and
 test counts, 1 command. The 10 "tests added" boxes are all **confirmed**: each
 of those PRs adds or modifies a test file. The 2 counts ("1480 tests", "322
 tests") describe one package while the gate ran the whole monorepo, so they
-are **unsupported** — deliberately, since the run's totals say nothing about
-that subset.
+are **unsupported**. The 1 command, `pnpm test` on #22963, failed at head with
+203 failing tests and failed at the merge base with the same 203 — the
+package-import and network-bound tests every mastra re-run shows — so it is
+**unsupported** ("not reproduced on a clean runner"), not contradicted. The
+base comparison did that work: one extra 87-second run, for the one PR whose
+run failed with a command claim.
 
-The one command claim, `pnpm test` on #22963, is the case base-commit
-comparison exists for. The clean re-run at head exited 1 with 203 failing
-tests; the gate then ran the same command at the base commit (ffc6440), where
-the same 203 tests fail — package-import and network-dependent tests that
-cannot pass with the network off, and that every mastra re-run in the sample
-shows in the same band (162 to 206 per run). Nothing was introduced by the PR,
-so the claim is reported **unsupported** ("not reproduced on a clean runner")
-and the receipt records the base facts under `observed.baseline`. Under 0.2.0,
-before the comparison existed, this row was a C1 contradiction; that is the
-false positive the feature removes. No PR in the sample is flagged.
+**No PR is flagged.** One PR (#20938, a refactor renaming "stored workflows"
+to "dynamic workflows") is `NEEDS_HUMAN` for updating a test fixture (C6),
+which is what that check is for. The same PR had been `FAIL` under 0.6.0 for
+"renaming away" seven test files it merely renamed to other test paths; 0.6.1
+corrected the rule, and the receipt was regenerated. The 31 scope notes (C8,
+informational) are changeset files and build configs the bodies do not name.
 
-No PR in the sample deleted, skipped, or focused a test, edited CI, or touched a
-lockfile without saying so. The 23 scope notes (C8, informational) are
-changeset files and build configs the bodies do not name. Cost of the
-comparison on this repository: one extra 87-second run for the one PR whose
-head run failed with a command claim; the other 39 were not re-run.
+### supabase/supabase — 30 Claude Code pull requests
+
+supabase's root `package.json` carries only turbo tasks; the tests live in
+`apps/studio`, `apps/www`, `apps/docs` and `packages/*`. Until workspace
+scoping (0.4.0) every one of these PRs came back NEUTRAL with "no test command".
+With it, 27 of 30 produced evidence: `apps/studio` runs of 4,900 to 6,400
+tests, `apps/www` 71 to 83, `apps/docs` 171 to 186. Two of the remaining three
+are honest abstentions — one PR touches only packages without a test script
+(#49454), one ran a Playwright end-to-end script the sandbox cannot host
+(#49198, below).
+
+Claude Code's bodies are prose, not templates: 30 bodies hold **5 stated
+template lines** and **13 checkable claims** — commands (`vitest`, `pnpm test`,
+`pnpm test:studio`) and a few counts. Six are **confirmed**, six
+**unsupported** (subset counts, and commands the base comparison excused: five
+PRs failed 11 or 23 environment-bound tests at head that fail identically at
+the merge base), one **contradicted**: `pnpm test:studio` on #49198 exited 1,
+and the base comparison could not be taken because the PR changes a lockfile
+and the sealed container cannot install the base's dependencies. That row is
+reported as *not comparable here*; the Action, online, would have compared it.
+
+**One PR is flagged, and it is real.** #49375 ("render Sign in with ChatGPT
+unconditionally") deletes three test files — the opt-in hook's test and the
+sign-in and sign-up page tests — which the compare API confirms. That is C3
+doing its job: a human decides whether the deleted coverage was only about the
+removed flag.
+
+This batch also produced the study's most important correction. Under 0.6.0
+four supabase PRs were `FAIL` on C3 for "deleting" test files they never
+touched: the harness had compared each PR against its base branch's *tip*, not
+the commit it forked from, and a two-dot diff showed the base branch's later
+additions as the PR's deletions. 0.6.0 diffs against the merge base — recorded
+from the compare API for every PR in the sample; 27 of 170 differed from the
+base tip — and marks a diff without one *unreliable* so no change-based check
+reads it. Every receipt in this document was regenerated after that fix. One
+more PR (#49692) introduced four failures that pass at base and claimed
+nothing; C9 (0.6.0) now reports that shape on its own.
+
+### BerriAI/litellm — 40 Devin pull requests
+
+_(re-running under 0.7.0; filled in when the batch completes)_
+
+### Infisical/infisical — 30 Claude Code pull requests
+
+_(re-running under 0.7.0; filled in when the batch completes)_
 
 ## Reading the numbers honestly
 
@@ -128,6 +169,12 @@ head run failed with a command claim; the other 39 were not re-run.
   #22963 is a C1 finding rather than an Unsupported claim.
 - **One command per PR.** When a body claims several commands, v1 verifies the
   first. Multi-command verification is planned.
+- **A sealed sandbox is stricter than the Action.** Two harness limits show up
+  as inconclusive rows and are reported as such: a repository whose own test
+  command installs from the network first (litellm's `make test`), and a base
+  comparison that needs the base commit's dependencies when the PR changed a
+  lockfile. Online, the Action does both. Neither is counted as a pass or as a
+  finding.
 - **The sample is what public agents leave behind.** Repositories that ban
   agent PRs, or where agents open PRs as humans without markers, are
   under-represented.
