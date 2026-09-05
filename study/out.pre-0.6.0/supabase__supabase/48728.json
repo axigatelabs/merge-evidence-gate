@@ -1,0 +1,87 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:54:54Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 48728,
+    "head_sha": "e6c6517fb6934b2e28f08ec9cc23cd8ee2255ba1",
+    "base_sha": "9952d6f10fb9a7b2d9d8c3312b279bfab2c4ba96",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'apps/docs' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm run test:local --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'packages/ui-patterns' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 5466,
+      "passed": 5453,
+      "failed": 11,
+      "skipped": 2,
+      "retried": 0
+    },
+    "tests_digest": "sha256:1c7ad809ec4a31262a5b1738d4ea7e492bcf4894e2c1c6c171d9d73eb66a2419",
+    "duration_s": 177,
+    "baseline": {
+      "sha": "9952d6f10fb9a7b2d9d8c3312b279bfab2c4ba96",
+      "exit_code": 1,
+      "totals": {
+        "run": 5466,
+        "passed": 5453,
+        "failed": 11,
+        "skipped": 2,
+        "retried": 0
+      },
+      "pre_existing": 11,
+      "introduced": []
+    }
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "11 changed files not mentioned in the PR body",
+      "evidence": [
+        "apps/studio/components/interfaces/Integrations/VercelGithub/ProjectLinker.tsx",
+        "apps/studio/components/interfaces/Integrations/VercelGithub/VercelGithub.types.ts",
+        "apps/studio/components/interfaces/Organization/IntegrationSettings/SidePanelVercelProjectLinker.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/ProjectCreation.utils.ts",
+        "apps/studio/components/interfaces/ProjectCreation/RegionSelector.tsx",
+        "apps/studio/data/integrations/integrations-vercel-connections-create-mutation.ts",
+        "apps/studio/data/integrations/vercel-integration-create-mutation.ts",
+        "apps/studio/pages/integrations/vercel/[slug]/deploy-button/new-project.tsx",
+        "apps/studio/pages/integrations/vercel/[slug]/marketplace/choose-project.tsx",
+        "apps/studio/pages/integrations/vercel/install.tsx",
+        "packages/ui-patterns/src/multi-select/multi-select.tsx"
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

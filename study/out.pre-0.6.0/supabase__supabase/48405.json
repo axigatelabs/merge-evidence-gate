@@ -1,0 +1,83 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T13:00:05Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 48405,
+    "head_sha": "bd72acb2dbb4126486ed3470b9f1f3126a67f4c7",
+    "base_sha": "7743fee3aba2690422b7c291f1d48cd883c54807",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "command",
+      "text": "`vitest run lib/sentry-client-options.test.ts`",
+      "parsed": {
+        "kind": "command",
+        "runner": "vitest",
+        "raw": "vitest run lib/sentry-client-options.test.ts",
+        "paths": [
+          "lib/sentry-client-options.test.ts"
+        ],
+        "nameFilters": []
+      },
+      "section": "Additional context",
+      "body_hash": "sha256:72186fa299a3075ebf9b18e02e87c3567080e73a0d4c0cdfaea99cd8504f0487"
+    },
+    {
+      "id": "c2",
+      "kind": "count",
+      "text": "47 tests",
+      "parsed": {
+        "kind": "count",
+        "total": 47
+      },
+      "section": "Additional context",
+      "body_hash": "sha256:72186fa299a3075ebf9b18e02e87c3567080e73a0d4c0cdfaea99cd8504f0487"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest run lib/sentry-client-options.test.ts --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 0,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 47,
+      "passed": 47,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:22a7ae42850aa1fa661089f00879a6f9dd6e5f798f91585502c0fa4189509293",
+    "duration_s": 1
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

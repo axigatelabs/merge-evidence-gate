@@ -1,0 +1,105 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:59:43Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 48482,
+    "head_sha": "1bfe2cfe4c4440d01f21fd16cd572048281c946b",
+    "base_sha": "ddc1f4175f1a60092b6e05b3ded0fce49e5ce1e8",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude"
+    ]
+  },
+  "claims": [],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'apps/www' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 0,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 4940,
+      "passed": 4940,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:0b748e603a5c8b013e3dbca052f97dd866ed2f913fd83335b89dad2a698a59d0",
+    "duration_s": 123
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [
+        "apps/studio/components/interfaces/Database/Publications/PublicationsAvailability.test.tsx",
+        "apps/studio/components/interfaces/Organization/Usage/Usage.test.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/ProjectCreation.utils.test.ts",
+        "apps/studio/components/interfaces/ProjectHome/ActivityStats.test.tsx",
+        "apps/studio/components/interfaces/ProjectHome/ServiceStatus.test.ts",
+        "apps/studio/components/interfaces/Settings/Database/ConnectionPooling/ConnectionPooling.test.tsx",
+        "apps/studio/components/interfaces/Settings/Database/PoolingModesModal.test.tsx",
+        "apps/studio/components/interfaces/TableGridEditor/SidePanelEditor/TableEditor/TableEditor.test.tsx"
+      ],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C3",
+      "severity": "fail",
+      "summary": "8 test files deleted in this PR",
+      "evidence": [
+        "apps/studio/components/interfaces/Database/Publications/PublicationsAvailability.test.tsx",
+        "apps/studio/components/interfaces/Organization/Usage/Usage.test.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/ProjectCreation.utils.test.ts",
+        "apps/studio/components/interfaces/ProjectHome/ActivityStats.test.tsx",
+        "apps/studio/components/interfaces/ProjectHome/ServiceStatus.test.ts",
+        "apps/studio/components/interfaces/Settings/Database/ConnectionPooling/ConnectionPooling.test.tsx",
+        "apps/studio/components/interfaces/Settings/Database/PoolingModesModal.test.tsx",
+        "apps/studio/components/interfaces/TableGridEditor/SidePanelEditor/TableEditor/TableEditor.test.tsx"
+      ]
+    },
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "20 changed files not mentioned in the PR body",
+      "evidence": [
+        "apps/studio/components/interfaces/Database/Publications/PublicationsAvailability.tsx",
+        "apps/studio/components/interfaces/Organization/Usage/Usage.tsx",
+        "apps/studio/components/interfaces/Project/ResumeProjectButton.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/HighAvailabilityInput.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/InternalOnlyConfiguration.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/PostgresVersionSelector.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/ProjectCreation.constants.ts",
+        "apps/studio/components/interfaces/ProjectCreation/ProjectCreation.utils.ts",
+        "apps/studio/components/interfaces/ProjectCreation/ProjectCreationForm.tsx",
+        "apps/studio/components/interfaces/ProjectCreation/RegionSelector.tsx",
+        "apps/studio/components/interfaces/ProjectHome/ActivityStats.tsx",
+        "apps/studio/components/interfaces/ProjectHome/ServiceStatus.tsx",
+        "apps/studio/components/interfaces/ProjectHome/ServiceStatus.utils.ts",
+        "apps/studio/components/interfaces/Settings/Database/ConnectionPooling/ConnectionPooling.tsx",
+        "apps/studio/components/interfaces/Settings/Database/PoolingModesModal.tsx",
+        "apps/studio/components/interfaces/Settings/General/CustomDomainConfig/CustomDomainConfig.tsx",
+        "apps/studio/components/interfaces/TableGridEditor/SidePanelEditor/TableEditor/TableEditor.tsx",
+        "apps/studio/data/custom-domains/custom-domains-query.ts",
+        "apps/studio/pages/project/[ref]/database/publications/[id].tsx",
+        "apps/studio/pages/project/[ref]/database/publications/index.tsx"
+      ]
+    }
+  ],
+  "verdict": "FAIL",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

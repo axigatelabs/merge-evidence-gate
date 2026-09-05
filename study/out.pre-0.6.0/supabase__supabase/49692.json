@@ -1,0 +1,84 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:25:17Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 49692,
+    "head_sha": "ade4030ca965cf86a6e4ecbdcfecf4093631490a",
+    "base_sha": "f1e0808223737e5fadf15576517c1e32536c501b",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 6111,
+      "passed": 6089,
+      "failed": 4,
+      "skipped": 18,
+      "retried": 0
+    },
+    "tests_digest": "sha256:0c5e1e705b53dd7d804ee34019bf26fc99272c8269fd5aab5927c83bb229d214",
+    "duration_s": 475,
+    "baseline": {
+      "sha": "f1e0808223737e5fadf15576517c1e32536c501b",
+      "exit_code": 0,
+      "totals": {
+        "run": 6111,
+        "passed": 6111,
+        "failed": 0,
+        "skipped": 0,
+        "retried": 0
+      },
+      "pre_existing": 0,
+      "introduced": [
+        "/work/repo/apps/studio/components/interfaces/Account/AccessTokens/Scoped/NewScopedTokenSheet.test.tsx::NewScopedTokenSheet does not re-scroll when the motion preference changes while the warning is visible",
+        "/work/repo/apps/studio/components/interfaces/Account/AccessTokens/Scoped/NewScopedTokenSheet.test.tsx::NewScopedTokenSheet falls back to Custom when a row diverges from the preset",
+        "/work/repo/apps/studio/components/interfaces/Account/AccessTokens/Scoped/NewScopedTokenSheet.test.tsx::NewScopedTokenSheet scrolls the missing permissions warning into view once per attempt",
+        "/work/repo/apps/studio/tests/pages/project/[ref]/settings/infrastructure.test.tsx::/project/[ref]/settings/infrastructure submits disk and autoscaling changes to both infrastructure APIs"
+      ]
+    }
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "3 changed files not mentioned in the PR body",
+      "evidence": [
+        "apps/studio/lib/ai/ai-details.ts",
+        "apps/studio/lib/ai/generate-assistant-response.ts",
+        "apps/studio/pages/api/ai/sql/generate-v4.ts"
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

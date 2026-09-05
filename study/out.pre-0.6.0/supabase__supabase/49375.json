@@ -1,0 +1,86 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:40:02Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 49375,
+    "head_sha": "23e750a453055d6878f2e7b45af6e519239f774e",
+    "base_sha": "86105ca5ec379b7e1cbe55aab641f8c323bed146",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "branch-prefix:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "command",
+      "text": "`vitest`",
+      "parsed": {
+        "kind": "command",
+        "runner": "vitest",
+        "raw": "vitest",
+        "paths": [],
+        "nameFilters": []
+      },
+      "section": "Additional context",
+      "body_hash": "sha256:8228ebf35ef5b7c6e89a9c5ba8bbe293b457d616af6180ab9d6b7a379d44dab5"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; (cd 'packages/common' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 0,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 5791,
+      "passed": 5791,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:2ec31777041937a11f4b6744e6c533a2f7dba836fcd34dc4a695394235a60270",
+    "duration_s": 189
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [
+        "apps/studio/hooks/misc/__tests__/useSiwcQueryParamOptIn.test.ts",
+        "apps/studio/tests/pages/sign-in.test.tsx",
+        "apps/studio/tests/pages/sign-up.test.tsx"
+      ],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C3",
+      "severity": "fail",
+      "summary": "3 test files deleted in this PR",
+      "evidence": [
+        "apps/studio/hooks/misc/__tests__/useSiwcQueryParamOptIn.test.ts",
+        "apps/studio/tests/pages/sign-in.test.tsx",
+        "apps/studio/tests/pages/sign-up.test.tsx"
+      ]
+    }
+  ],
+  "verdict": "FAIL",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-04T19:19:01Z",
+  "pr": {
+    "repo": "mastra-ai/mastra",
+    "number": 21150,
+    "head_sha": "82a3448f00856664f5d27e73655abe47828f126e",
+    "base_sha": "7fdcaa66105d64290f9b14432a12ec99f39c4d3a",
+    "author": "devin-ai-integration[bot]"
+  },
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "body-marker:devin",
+      "branch-prefix:devin",
+      "login:devin"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "checkbox",
+      "text": "- [x] Documentation update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Documentation update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:09cb0a53a3b9248147dc1998f87bc31772fe6b60889f1caa046f238d1c3c5f98"
+    },
+    {
+      "id": "c2",
+      "kind": "checkbox",
+      "text": "- [x] I have made corresponding changes to the documentation (if applicable)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have made corresponding changes to the documentation (if applicable)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:09cb0a53a3b9248147dc1998f87bc31772fe6b60889f1caa046f238d1c3c5f98"
+    }
+  ],
+  "observed": {
+    "command": "pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 3793,
+      "passed": 3570,
+      "failed": 188,
+      "skipped": 35,
+      "retried": 0
+    },
+    "tests_digest": "sha256:f4a3c9af1e19dcccf17e7ccff2f0fc997d3322fa0d9573669de1e153d3f44286",
+    "duration_s": 66
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

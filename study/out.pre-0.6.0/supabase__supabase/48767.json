@@ -1,0 +1,91 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:51:10Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 48767,
+    "head_sha": "9c9bfa32aeb314fc70d20b21fbaaff051a4f04c1",
+    "base_sha": "47b8660d8d2ffd7fa661b287cea661c72ef49a12",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "count",
+      "text": "404 error",
+      "parsed": {
+        "kind": "count",
+        "failed": 404
+      },
+      "section": "What is the new behavior?",
+      "body_hash": "sha256:458e3a57425db51b6419b2078b66461929fa8fff96c40d80b1e83cde629c1e4b"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'apps/docs' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm run test:local --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; exit \"$f\"",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 171,
+      "passed": 158,
+      "failed": 11,
+      "skipped": 2,
+      "retried": 0
+    },
+    "tests_digest": "sha256:ab7a0344d4623fb69e070bbd94e0559cebe407e3f663ca657d59b18e7c2d5bf7",
+    "duration_s": 47,
+    "baseline": {
+      "sha": "47b8660d8d2ffd7fa661b287cea661c72ef49a12",
+      "exit_code": 1,
+      "totals": {
+        "run": 171,
+        "passed": 158,
+        "failed": 11,
+        "skipped": 2,
+        "retried": 0
+      },
+      "pre_existing": 11,
+      "introduced": []
+    }
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C2",
+      "severity": "needs-human",
+      "claim": "c1",
+      "summary": "Claimed 404 failed; 11 observed",
+      "evidence": [
+        "claimed failed=404",
+        "observed failed=11"
+      ]
+    }
+  ],
+  "verdict": "NEEDS_HUMAN",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

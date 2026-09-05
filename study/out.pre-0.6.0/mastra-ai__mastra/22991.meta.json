@@ -1,0 +1,18 @@
+{
+  "verdict": "PASS",
+  "skipped": null,
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "login:devin",
+      "branch-prefix:devin",
+      "body-marker:devin"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [
+    "diff: could not compare 368601e...e9d1d09; the change-based checks did not run"
+  ],
+  "title": "Merge-Evidence Gate — PASS  (head e9d1d09)"
+}

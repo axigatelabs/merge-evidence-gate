@@ -1,0 +1,16 @@
+{
+  "verdict": "PASS",
+  "skipped": null,
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "login:devin",
+      "branch-prefix:devin",
+      "body-marker:devin"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [],
+  "title": "Merge-Evidence Gate — PASS  (head fa00bbd)"
+}

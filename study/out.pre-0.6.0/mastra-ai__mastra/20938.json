@@ -1,0 +1,103 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-04T20:38:30Z",
+  "pr": {
+    "repo": "mastra-ai/mastra",
+    "number": 20938,
+    "head_sha": "ce61893375d391a870ed191a304fff53665f5633",
+    "base_sha": "6b5fe464a97ac4845ce26475f347811fc7fb9684",
+    "author": "devin-ai-integration[bot]"
+  },
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "body-marker:devin",
+      "branch-prefix:devin",
+      "login:devin"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "count",
+      "text": "1480 tests",
+      "parsed": {
+        "kind": "count",
+        "total": 1480
+      },
+      "section": "Description",
+      "body_hash": "sha256:89c064d88e71d329f6d45afc14df8e8fbf409191825983faeabe8451ebf5f140"
+    },
+    {
+      "id": "c2",
+      "kind": "checkbox",
+      "text": "- [x] Code refactoring",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Code refactoring"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:89c064d88e71d329f6d45afc14df8e8fbf409191825983faeabe8451ebf5f140"
+    },
+    {
+      "id": "c3",
+      "kind": "checkbox",
+      "text": "- [x] Documentation update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Documentation update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:89c064d88e71d329f6d45afc14df8e8fbf409191825983faeabe8451ebf5f140"
+    },
+    {
+      "id": "c4",
+      "kind": "checkbox",
+      "text": "- [x] I have made corresponding changes to the documentation (if applicable)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have made corresponding changes to the documentation (if applicable)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:89c064d88e71d329f6d45afc14df8e8fbf409191825983faeabe8451ebf5f140"
+    }
+  ],
+  "observed": {
+    "command": "pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 3697,
+      "passed": 3476,
+      "failed": 186,
+      "skipped": 35,
+      "retried": 0
+    },
+    "tests_digest": "sha256:ee93daa35d7ff7af2ad4b6ddbaf6c7dd1f46c65b79def47bee904ee2013dc58f",
+    "duration_s": 75
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

@@ -118,7 +118,15 @@ export function analyzeDiff(files: ChangedFile[], opts?: AnalyzeDiffOptions): Di
 
     if (isTest) {
       if (file.status === 'R' && rename !== null) {
-        renamed.push(rename);
+        // Only a rename that takes a file OUT of the test set moves coverage
+        // away (`a_test.go` → `b_helper.go`). A test renamed to another test
+        // path — a refactor — keeps its coverage and is a modified test; a
+        // source file renamed into the test set is an added test.
+        const fromTest = isTestFile(rename.from);
+        const toTest = isTestFile(rename.to);
+        if (fromTest && !toTest) renamed.push(rename);
+        else if (!fromTest && toTest) added.push(rename.to);
+        else modified.push(rename.to);
       } else if (file.status === 'D') {
         deleted.push(file.path);
       } else if (file.status === 'A' || (file.status === 'C' && rename !== null)) {

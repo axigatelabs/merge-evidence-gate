@@ -1,0 +1,18 @@
+{
+  "verdict": "FAIL",
+  "skipped": null,
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "login:claude",
+      "coauthor-trailer:claude"
+    ],
+    "isAgent": true
+  },
+  "unverifiable": [],
+  "notes": [
+    "runner: root has no test command; running the test script of 2 workspace package(s) this PR touches: apps/studio, apps/www",
+    "runner: merged 2 per-package report(s) found below the work dir (monorepo)"
+  ],
+  "title": "Merge-Evidence Gate — FAIL  (head 5314506)"
+}

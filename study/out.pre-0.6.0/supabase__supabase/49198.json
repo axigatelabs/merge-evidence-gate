@@ -1,0 +1,86 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-05T12:42:08Z",
+  "pr": {
+    "repo": "supabase/supabase",
+    "number": 49198,
+    "head_sha": "4bc977dbb22a13d276d2b8fca81745e3c3796b32",
+    "base_sha": "9587eee361faaad22283c213120c67e953baa032",
+    "author": "claude[bot]"
+  },
+  "agent": {
+    "detected": "claude",
+    "signals": [
+      "body-marker:claude",
+      "branch-prefix:claude",
+      "coauthor-trailer:claude",
+      "login:claude"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "command",
+      "text": "`pnpm test:studio`",
+      "parsed": {
+        "kind": "command",
+        "runner": "npm",
+        "raw": "pnpm test:studio",
+        "paths": [],
+        "nameFilters": []
+      },
+      "section": "Additional context",
+      "body_hash": "sha256:a14a457dcfd601181c4cc710732bc997ab5fb032d710c7af163c8e759a2ea7a7"
+    }
+  ],
+  "observed": {
+    "command": "f=0; (cd 'e2e/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test:studio) || f=1; exit \"$f\"",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "retried": 0
+    },
+    "tests_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "duration_s": 0
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [
+      "package.json",
+      "pnpm-lock.yaml"
+    ],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C1",
+      "severity": "fail",
+      "claim": "c1",
+      "summary": "Claimed `pnpm test:studio` passed; the re-run exited 1",
+      "evidence": [
+        "claimed command: pnpm test:studio",
+        "observed command: f=0; (cd 'e2e/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test:studio) || f=1; exit \"$f\"",
+        "observed exit_code=1"
+      ]
+    }
+  ],
+  "verdict": "FAIL",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "schema": "merge-evidence/receipt/v1",
+  "generatedAt": "2026-09-04T18:58:17Z",
+  "pr": {
+    "repo": "mastra-ai/mastra",
+    "number": 21421,
+    "head_sha": "a5700ad9db55b6c43c95c1c05f286d09f60fd723",
+    "base_sha": "161258b3473a6d0fce00a43cab59d119a49a232f",
+    "author": "devin-ai-integration[bot]"
+  },
+  "agent": {
+    "detected": "devin",
+    "signals": [
+      "body-marker:devin",
+      "branch-prefix:devin",
+      "login:devin"
+    ]
+  },
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "checkbox",
+      "text": "- [x] Documentation update",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "Documentation update"
+      },
+      "section": "Type of change",
+      "body_hash": "sha256:1803ea83c29b13540b409574bd1f5519938ee4e29aa3843d26bcbc265823cd06"
+    },
+    {
+      "id": "c2",
+      "kind": "checkbox",
+      "text": "- [x] I have made corresponding changes to the documentation (if applicable)",
+      "parsed": {
+        "kind": "checkbox",
+        "checked": true,
+        "label": "I have made corresponding changes to the documentation (if applicable)"
+      },
+      "section": "Checklist",
+      "body_hash": "sha256:1803ea83c29b13540b409574bd1f5519938ee4e29aa3843d26bcbc265823cd06"
+    }
+  ],
+  "observed": {
+    "command": "pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json",
+    "exit_code": 1,
+    "toolchain": {
+      "go": "1.19.8",
+      "node": "24.20.0",
+      "python": "3.11.2"
+    },
+    "totals": {
+      "run": 3983,
+      "passed": 3751,
+      "failed": 197,
+      "skipped": 35,
+      "retried": 0
+    },
+    "tests_digest": "sha256:19207f05b5478b5f5908fc31fb6a3925d524222a0fe648da386d188e3be49126",
+    "duration_s": 76
+  },
+  "diff": {
+    "tests": {
+      "added": [],
+      "deleted": [],
+      "skipped_added": [],
+      "focused": []
+    },
+    "sensitive_paths": [],
+    "lockfiles": [],
+    "snapshots": []
+  },
+  "discrepancies": [
+    {
+      "check": "C8",
+      "severity": "info",
+      "summary": "1 changed file not mentioned in the PR body",
+      "evidence": [
+        "docs/src/content/en/docs/agents/using-tools.mdx"
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "policy_version": "1.0.0",
+  "signature": {
+    "predicate_type": "https://merge-evidence.dev/receipt/v1"
+  }
+}
