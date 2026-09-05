@@ -98,6 +98,8 @@ and removals require a new major (`/v2`).
 | `agent.signals` | Which agent signals fired: `login` (bot account), `branch-prefix` (`copilot/`, `devin/`, `cursor/`, `claude/`, `codex/`), `body-marker` (vendor HTML markers / footers), `coauthor-trailer` (`Co-Authored-By: Claude|Copilot|Cursor Agent`). |
 | `claims[]` | Every parseable claim from the PR body, in order. `kind` ∈ `command`, `count`, `test`, `checkbox`, `caveat`. |
 | `claims[].body_hash` | `sha256:` of the full PR body at evaluation time, so a later edit to the body is detectable. |
+| `claims[].commandRef` | For a count: the id of the command claim it follows in the same section. C2 compares it only when that command is the one the run executed. |
+| `observed.claim` | Present when the run executed a command the body claimed: that claim's id. |
 | `observed.command` | The exact command the gate executed, after injecting a machine-readable reporter. |
 | `observed.totals.retried` | Tests invoked more than once. Non-zero means retries were on — a flaky-masking signal. |
 | `observed.tests_digest` | `sha256:` over the sorted list of executed test ids. Lets a verifier confirm the set without the raw log. |

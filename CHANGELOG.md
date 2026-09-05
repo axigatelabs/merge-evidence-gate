@@ -9,7 +9,21 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.7.1 — unreleased
+## 0.8.0 — unreleased
+
+### Changed
+
+- Nothing under a heading that describes another state — "Before (sha)",
+  "Previously", "Steps to reproduce", "Current behavior" — is a claim. A
+  litellm body with "Before" and "After" runs had its "before" count scored
+  against the PR's run.
+- A count claim is bound to the command it follows (`claims[].commandRef`),
+  and the receipt records which claimed command the run executed
+  (`observed.claim`). C2 compares a bound count only against the run of its
+  own command; the "61 passed" of a second command is not held against the
+  first command's four tests.
+
+## 0.7.1 — 2026-09-05
 
 ### Changed
 

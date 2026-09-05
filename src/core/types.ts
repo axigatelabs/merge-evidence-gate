@@ -74,6 +74,12 @@ export interface Claim {
   parsed: ParsedCommand | ParsedCount | ParsedTest | ParsedCheckbox | ParsedCaveat;
   /** Where in the body it came from (heading context), e.g. "Test plan". */
   section?: string;
+  /**
+   * For a count: the id of the command claim it follows in the same section
+   * (or on the same line) — the run it reports on. A count bound to a command
+   * that was not the one executed cannot be compared.
+   */
+  commandRef?: string;
 }
 
 export interface ParsedCommand {
@@ -185,6 +191,8 @@ export interface ObservedRun {
   baseline?: BaselineRun;
   /** Raw reporter output path for the receipt artifact (never inlined). */
   reportPath?: string;
+  /** The claim whose command this run executed, when the run came from a claim. */
+  claimId?: string;
 }
 
 /** A runner adapter turns a reporter's machine output into ExecutedTest[]. */
@@ -298,6 +306,8 @@ export interface Receipt {
     /** sha256 over the sorted executed test ids — lets a stranger verify the set without the raw log. */
     tests_digest: string;
     duration_s: number;
+    /** The claim whose command this run executed, when the run came from a claim. */
+    claim?: string;
     no_test_command?: boolean;
     /**
      * True when the command ran but produced no evidence about the PR: the

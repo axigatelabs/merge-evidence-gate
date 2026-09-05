@@ -83122,6 +83122,13 @@ exports.extractClaims = extractClaims;
 const FENCE = /^ {0,3}(?:```|~~~)/;
 /** An ATX heading: "## Test plan" → section "Test plan". */
 const HEADING = /^ {0,3}(#{1,6})\s+(.*)$/;
+/**
+ * Sections that describe some other state than this pull request's result:
+ * "Before (e0e2492)", "Previously", "Steps to reproduce", "Current behavior".
+ * A command or count there reports on the bug, not on the change, and is not
+ * a claim.
+ */
+const NON_ASSERTIVE_SECTION = /^(?:before\b|previously\b|prior(?:\s+to)?\b|old\s+behaviou?r|without\s+(?:the\s+|this\s+)?(?:fix|change|patch)\b|repro(?:duction)?\b|steps\s+to\s+reproduce|current\s+behaviou?r|expected\s+behaviou?r|actual\s+behaviou?r)/i;
 /** "- [x] label" / "* [ ] label" — the checkbox claim. */
 const CHECKBOX = /^\s*[-*+]\s+\[([ xX])\]\s?(.*)$/;
 /** An inline-code span: `go test ./...`. Backticks are excluded from the body. */
@@ -83472,6 +83479,9 @@ function collectFromLine(line, section) {
 function extractClaims(pr) {
     const claims = [];
     let section;
+    let skipSection = false;
+    /** The last command claim in the current section: the run a following count reports on. */
+    let lastCommand;
     let inFence = false;
     let inComment = false;
     for (const rawLine of pr.body.split(/\r?\n/)) {
@@ -83488,10 +83498,20 @@ function extractClaims(pr) {
         if (heading) {
             // "## Test plan ##" → "Test plan". The heading itself is never a claim.
             section = (heading[2] ?? '').replace(/\s*#+\s*$/, '').trim() || undefined;
+            skipSection = section !== undefined && NON_ASSERTIVE_SECTION.test(section);
+            lastCommand = undefined;
             continue;
         }
+        if (skipSection)
+            continue;
         for (const candidate of collectFromLine(line, section)) {
-            claims.push({ id: `c${claims.length + 1}`, ...candidate.claim });
+            const id = `c${claims.length + 1}`;
+            const claim = { id, ...candidate.claim };
+            if (claim.kind === 'command')
+                lastCommand = id;
+            if (claim.kind === 'count' && lastCommand !== undefined)
+                claim.commandRef = lastCommand;
+            claims.push(claim);
         }
     }
     return claims;
@@ -84492,6 +84512,7 @@ function buildReceipt(input) {
             totals: { ...observed.totals },
             tests_digest: testsDigest(observed.tests),
             duration_s: Math.round(observed.durationMs / 1000),
+            ...(observed.claimId === undefined ? {} : { claim: observed.claimId }),
             ...(noTestCommand ? { no_test_command: true } : {}),
             ...((0, reconcile_js_1.hasNoEvidence)(observed) ? { no_evidence: true } : {}),
             ...baselineProjection(observed),
@@ -84824,6 +84845,14 @@ function checkC2(claims, observed, policy) {
         if (parsed === undefined)
             continue;
         if (noCounts) {
+            unverifiable.push(claim.id);
+            continue;
+        }
+        // A count reports on the command it follows. When the run executed a
+        // different claimed command, the count has nothing to be compared with.
+        if (claim.commandRef !== undefined &&
+            observed.claimId !== undefined &&
+            claim.commandRef !== observed.claimId) {
             unverifiable.push(claim.id);
             continue;
         }
@@ -87407,6 +87436,7 @@ async function evaluate(opts) {
     const operatorCommand = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
     let claimedCommand;
     let claimedPaths = [];
+    let claimedId;
     if (operatorCommand === undefined && opts.preferClaimedCommand === true) {
         const claimed = claims.find((c) => c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown');
         if (claimed !== undefined) {
@@ -87414,6 +87444,7 @@ async function evaluate(opts) {
             if (stripped !== '') {
                 claimedCommand = stripped;
                 claimedPaths = claimed.parsed.paths;
+                claimedId = claimed.id;
                 const note = `runner: running the command the PR claimed (${claimed.id}): \`${claimedCommand}\``;
                 core.info(note);
                 notes.push(note);
@@ -87467,6 +87498,8 @@ async function evaluate(opts) {
         observed = await runTests(detected, workDir, files, notes, {
             ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
         });
+        if (claimedId !== undefined)
+            observed = { ...observed, claimId: claimedId };
         // A failed head run is compared against the base commit before it can be
         // held against the PR: many repositories fail some tests on a clean runner
         // (network, keys, platform), and those failures are not this change's.

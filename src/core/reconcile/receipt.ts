@@ -85,6 +85,7 @@ export function buildReceipt(input: BuildReceiptInput): Receipt {
       totals: { ...observed.totals },
       tests_digest: testsDigest(observed.tests),
       duration_s: Math.round(observed.durationMs / 1000),
+      ...(observed.claimId === undefined ? {} : { claim: observed.claimId }),
       ...(noTestCommand ? { no_test_command: true } : {}),
       ...(hasNoEvidence(observed) ? { no_evidence: true } : {}),
       ...baselineProjection(observed),
