@@ -1,5 +1,5 @@
 name: 'Merge-Evidence Gate'
-description: 'Re-runs an AI-agent pull request in a clean environment, compares what the agent claimed to what actually happened, and posts a receipt that decides merge eligibility.'
+description: 'Re-runs an AI-agent pull request in a clean environment, checks its claims against what actually ran, and posts a receipt.'
 author: 'AxiGate'
 branding:
   icon: 'check-square'
