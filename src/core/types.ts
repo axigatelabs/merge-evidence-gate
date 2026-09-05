@@ -130,7 +130,13 @@ export interface ObservedRun {
   /** The exact command executed, after reporter injection. */
   command: string;
   runner: RunnerFamily | 'none';
+  /**
+   * Exit status. When the process died by signal the shell convention
+   * 128 + signal number is recorded (137 for SIGKILL) and `signal` is set.
+   */
   exitCode: number;
+  /** Signal that terminated the runner (`SIGKILL`, `SIGTERM`), when it died by one. */
+  signal?: string;
   durationMs: number;
   /** Toolchain versions recorded from the runner, e.g. { go: "1.25.1", node: "24.4.0" }. */
   toolchain: Record<string, string>;
@@ -142,6 +148,13 @@ export interface ObservedRun {
   enumeratedAtBase?: string[];
   /** True when no test command could be determined — verdict becomes neutral. */
   noTestCommand?: boolean;
+  /**
+   * True when the runner family writes a machine-readable report and none was
+   * found (or it could not be parsed) after the command ran: the runner was
+   * killed or crashed before the reporter wrote. Distinct from a report that
+   * says zero tests ran — that is evidence.
+   */
+  reportMissing?: boolean;
   /** Raw reporter output path for the receipt artifact (never inlined). */
   reportPath?: string;
 }
@@ -179,6 +192,12 @@ export interface DiffAnalysis {
   snapshotFiles: string[];
   /** All non-test source files touched (for scope comparison). */
   sourceFiles: string[];
+  /**
+   * Number of changed files git reported, before categorisation and before
+   * `scopeAllow` filtering. Zero means an empty diff or a base that could not
+   * be compared; absent when the analysis was built without that count.
+   */
+  fileCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,12 +206,13 @@ export interface DiffAnalysis {
 
 /** Stable check identifiers (from the build spec). Treat as an API. */
 export type CheckId =
-  | 'C1' // claimed command never ran / failed
+  | 'C1' // claimed command failed on the clean re-run (unmappable claims are unverifiable, not C1)
   | 'C2' // claimed count ≠ observed
   | 'C3' // tests deleted / renamed / skipped / focused
   | 'C4' // verification-layer edits
   | 'C5' // unmentioned dependency / lockfile change
   | 'C6' // snapshot / golden updates
+  | 'C7' // "tests added" ticked, diff touches no test file
   | 'C8'; // scope creep (info)
 
 export type Severity = 'fail' | 'needs-human' | 'info';
@@ -242,6 +262,14 @@ export interface Receipt {
     tests_digest: string;
     duration_s: number;
     no_test_command?: boolean;
+    /**
+     * True when the command ran but produced no evidence about the PR: the
+     * runner died by signal, could not start (exit 126/127), or its report is
+     * missing or unparsable. Claims about the run are unverifiable and the
+     * verdict abstains — inconclusive, not failed. A report that says zero
+     * tests ran is evidence and does not set this.
+     */
+    no_evidence?: boolean;
   };
   diff: {
     tests: { added: string[]; deleted: string[]; skipped_added: string[]; focused: string[] };

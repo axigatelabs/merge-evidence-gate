@@ -7,10 +7,17 @@
 # Harness failures (no receipt) are listed in study/out/<owner>__<repo>/FAILED.
 set -euo pipefail
 
-REPO="${1:?owner/repo}"; LIMIT="${2:-40}"; PAR="${3:-3}"; TEST_CMD="${4:-}"
+REPO="${1:?owner/repo}"; LIMIT="${2:-40}"; PAR="${3:-2}"; TEST_CMD="${4:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KEY="${REPO/\//__}"; DATA="$HERE/data/$KEY"; OUT="$HERE/out/$KEY"; mkdir -p "$OUT"
 [ -f "$DATA/prs.jsonl" ] || { echo "no data: run study/fetch-prs.sh $REPO <app> first" >&2; exit 2; }
+
+# Per-container memory ceiling when the caller did not set one: the Docker VM
+# minus 1 GiB of headroom, divided by the parallel slots, capped at 5 GiB — so
+# every slot can sit at its ceiling at once without the VM's own OOM killer
+# stepping in (which produces the same exit 137 the ceiling is meant to make
+# deterministic). See study/run-one.sh for the CPU pin.
+source "$HERE/lib-resources.sh"; budget_memory "$PAR"
 
 todo=$(python3 - "$DATA/prs.jsonl" "$OUT" "$LIMIT" <<'PY'
 import sys,json,os
@@ -20,7 +27,7 @@ print("\n".join(str(n) for n in nums[:limit] if not os.path.exists(f"{out}/{n}.j
 PY
 )
 total=$(echo "$todo" | grep -c . || true)
-echo "batch: $REPO — $total PR(s) to run, $PAR at a time" >&2
+echo "batch: $REPO — $total PR(s) to run, $PAR at a time, ${MEG_MEM} per container" >&2
 [ "$total" -gt 0 ] || exit 0
 
 export REPO TEST_CMD HERE OUT

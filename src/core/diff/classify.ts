@@ -11,14 +11,75 @@
  * concrete case it catches.
  */
 
-/** Directory segments that mark a tree as test-owned. Rust's `tests/` lands here too. */
-const TEST_DIR_SEGMENTS: ReadonlySet<string> = new Set(['test', 'tests', '__tests__', 'testdata']);
+/**
+ * Directory segments that mark a tree as test-owned — any file below them
+ * counts. Compared case-insensitively so SwiftPM's and Symfony's `Tests/`
+ * count. Rust's `tests/` lands here too. `spec/` is deliberately absent:
+ * OpenAPI documents, RFCs, and spec-driven planning trees live there, and the
+ * test conventions that use it (RSpec `_spec.rb`, Jasmine `.spec.js`) are
+ * matched on the file name instead.
+ */
+const TEST_DIR_SEGMENTS: ReadonlySet<string> = new Set([
+  'test',
+  'tests',
+  '__tests__',
+  '__test__',
+  'testdata',
+  'integration_test', // Flutter
+  'test_driver', // Flutter
+  'androidtest', // Android source set (compared lower-cased)
+]);
+
+/** .NET test projects are directories named `<Project>.Tests` / `<Project>.Test`. */
+const DOTNET_TEST_PROJECT = /\.tests?$/i;
+
+/** End-to-end trees where only SOURCE files are tests: `e2e/README.md` is documentation. */
+const E2E_DIR_SEGMENTS: ReadonlySet<string> = new Set(['e2e', 'cypress']);
+
+/** A file that holds code in a language with a test runner. */
+const SOURCE_EXT = /\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|kts|cs|php|swift|scala)$/;
+
+const isTestDirSegment = (segment: string): boolean => TEST_DIR_SEGMENTS.has(segment.toLowerCase());
+const isE2eDirSegment = (segment: string): boolean => E2E_DIR_SEGMENTS.has(segment.toLowerCase());
 
 /** Go test files: `pkg/node/prune_test.go`. */
 const GO_TEST_FILE = /_test\.go$/;
 
-/** Python test modules, both orderings: `tests/test_login.py`, `login_test.py`. */
-const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py)$/;
+/**
+ * Ruby: RSpec `spec/models/user_spec.rb` — only below a `spec/` directory, since
+ * `app/models/blood_test.rb` is a product model — plus the helpers and support
+ * trees RSpec loads. Minitest lives under `test/` (directory rule).
+ */
+const RB_SPEC_FILE = /_spec\.rb$/;
+const RB_SPEC_HELPER = /(?:^|\/)(?:spec|rails)_helper\.rb$/;
+const RB_SPEC_SUPPORT: ReadonlySet<string> = new Set(['support', 'factories']);
+
+/**
+ * `_test` / `_unittest` file suffixes in languages whose runners use them: Deno
+ * (`login_test.ts`), gtest (`parser_test.cc`, `parser_unittest.cc`), Dart
+ * (`login_test.dart`), Elixir (`login_test.exs`).
+ *
+ * Class-per-file names such as `UserTest.java` are deliberately NOT a rule:
+ * JUnit, Kotlin, PHPUnit and XCTest all keep tests under a `test/`, `tests/`
+ * or `Tests/` directory (matched above), while `SpeedTest.java` or
+ * `LoadTest.cs` outside one is product code. `*Spec` names are product classes
+ * (`V1PodSpec.java`, `OpenApiSpec.kt`); ScalaTest's `UserSpec.scala` is
+ * recognised by its `src/test/` directory.
+ */
+const SUFFIX_TEST_FILE = /_(?:test|unittest)\.(?:[cm]?[jt]sx?|cc|cpp|cxx|c|dart|exs?)$/;
+
+/** Cypress specs: `login.cy.ts`. Script extensions only — `about.cy.md` is a Welsh page. */
+const CY_TEST_FILE = /\.cy\.[cm]?[jt]sx?$/;
+
+/**
+ * Rust keeps unit tests inside the source file; an added `#[test]`,
+ * `#[cfg(test)]`, or an attribute-macro test (`#[tokio::test]`, `#[rstest]`,
+ * `#[test_case(…)]`, `#[wasm_bindgen_test]`, `#[proptest]`) is a test edit.
+ */
+const RUST_INLINE_TEST = /^\s*#\[(?:cfg\(test\)|(?:\w+::)*(?:test|rstest|test_case|proptest|quickcheck|wasm_bindgen_test)\b)/;
+
+/** Python test modules, both orderings plus Django's default `app/tests.py`: `tests/test_login.py`, `login_test.py`. */
+const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py|tests\.py)$/;
 
 /** Python shared test fixtures/plugins at any depth: `tests/conftest.py`. */
 const PY_CONFTEST = /(?:^|\/)conftest\.py$/;
@@ -109,6 +170,12 @@ const COPILOT_INSTRUCTIONS_PATH = /(?:^|\/)\.github\/copilot-instructions\.md$/;
 /**
  * Added-line tokens that neutralise a failing step, paired with the case each catches.
  * These are the "make red go green without fixing anything" edits.
+ *
+ * Where they count: anywhere in a CI-relevant file (workflows, CI configs,
+ * Makefiles, `package.json`, `scripts/`, task runners), and elsewhere only on a
+ * line that runs a test command. `docker volume rm x || true` in a helper
+ * script is housekeeping; `pytest || true` anywhere is not. Documentation is
+ * never executed and is skipped.
  */
 const SUPPRESSION_PATTERNS: readonly RegExp[] = [
   /continue-on-error:\s*true/, // GitHub Actions step that no longer fails the job
@@ -117,6 +184,32 @@ const SUPPRESSION_PATTERNS: readonly RegExp[] = [
   /set\s+\+e/, // shell: stop aborting on error for the rest of the script
   /allow_failure/, // GitLab CI / generic: allow_failure: true
 ];
+
+/** Files CI executes or reads: a suppression token counts anywhere in them. */
+const CI_RELEVANT_PATH =
+  /(?:^|\/)(?:\.github\/workflows\/[^/]+|\.gitlab-ci\.ya?ml|\.circleci\/[^/]+|\.travis\.ya?ml|azure-pipelines\.ya?ml|Jenkinsfile|bitbucket-pipelines\.ya?ml|\.buildkite\/[^/]+|Makefile|GNUmakefile|justfile|Taskfile\.ya?ml|tox\.ini|noxfile\.py|package\.json|scripts?\/[^/]+|\.?ci\/[^/]+)$/i;
+
+/** A line that invokes a test runner: suppressing ITS failure counts in any file. */
+const TEST_INVOCATION =
+  /\b(?:pytest|py\.test|go\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|npx\s+(?:vitest|jest|mocha|playwright|cypress)|vitest|jest|mocha|cargo\s+(?:test|nextest)|make\s+(?:test|check)|ctest|mvn|gradlew?|dotnet\s+test|rspec|bundle\s+exec|phpunit|mix\s+test|swift\s+test|xcodebuild|flutter\s+test|dart\s+test|deno\s+test|tox|nox|coverage\s+run)\b/;
+
+/** Documentation is never executed, so a token quoted in prose is not a suppression. */
+const DOC_FILE = /\.(?:md|mdx|rst|txt|adoc)$/i;
+
+/**
+ * Files a shell interprets, where `|| true` discards an exit code. In source
+ * code `||` is an operator (`flag || true`) and in a test fixture or a bundle
+ * the token is quoted text, so those files are never scanned.
+ */
+const SHELL_FILE = /(?:^|\/)(?:Dockerfile[^/]*|[^/]+\.(?:sh|bash|zsh|ksh|bat|cmd|ps1))$/i;
+
+/** Pipeline YAML outside the standard directories (a GitLab include, a Buildkite step file). */
+const PIPELINE_YAML = /\.ya?ml$/i;
+
+function suppressesFailure(line: string, ciRelevant: boolean): boolean {
+  if (!SUPPRESSION_PATTERNS.some((pattern) => pattern.test(line))) return false;
+  return ciRelevant || TEST_INVOCATION.test(line);
+}
 
 // ---------------------------------------------------------------------------
 // Patch helpers
@@ -208,7 +301,27 @@ export function isTestFile(path: string): boolean {
   if (PY_TEST_FILE.test(p)) return true;
   if (PY_CONFTEST.test(p)) return true;
   if (JS_TEST_FILE.test(p)) return true;
-  return dirSegments(p).some((segment) => TEST_DIR_SEGMENTS.has(segment));
+  if (CY_TEST_FILE.test(p)) return true;
+  if (SUFFIX_TEST_FILE.test(p)) return true;
+  if (RB_SPEC_HELPER.test(p)) return true;
+  const segments = dirSegments(p);
+  if (segments.some(isTestDirSegment)) return true;
+  if (segments.some((segment) => DOTNET_TEST_PROJECT.test(segment))) return true;
+  if (segments.some((segment) => segment.toLowerCase() === 'spec')) {
+    if (RB_SPEC_FILE.test(p)) return true;
+    if (segments.some((segment) => RB_SPEC_SUPPORT.has(segment.toLowerCase()))) return true;
+  }
+  return SOURCE_EXT.test(p) && segments.some(isE2eDirSegment);
+}
+
+/**
+ * True when a Rust source file's patch ADDS an inline test (`#[test]`,
+ * `#[cfg(test)]`). Rust puts unit tests next to the code, so a path-only
+ * classifier would call an honest "added tests" PR untested.
+ */
+export function hasInlineTests(path: string, patch: string | undefined): boolean {
+  if (!/\.rs$/.test(normalize(path))) return false;
+  return addedLines(patch).some((line) => RUST_INLINE_TEST.test(line));
 }
 
 /**
@@ -221,10 +334,10 @@ export function isSnapshotFile(path: string): boolean {
   const p = normalize(path);
   if (SNAPSHOT_EXT.test(p)) return true;
   const segments = dirSegments(p);
-  if (segments.includes('testdata')) return true;
+  if (segments.some((segment) => segment.toLowerCase() === 'testdata')) return true;
   if (segments.includes('fixtures')) {
     // `fixtures/` only counts under a test dir: `test/fixtures/user.json` yes, `src/fixtures/flags.json` no.
-    return segments.some((segment) => TEST_DIR_SEGMENTS.has(segment));
+    return segments.some(isTestDirSegment);
   }
   return false;
 }
@@ -250,9 +363,11 @@ export function verificationLayerReason(path: string, patch?: string): string | 
   const p = normalize(path);
   const name = basename(p);
 
-  // Content signal first: an added line that makes failure survivable.
-  const added = addedLines(patch);
-  if (added.some((line) => SUPPRESSION_PATTERNS.some((pattern) => pattern.test(line)))) {
+  // Content signal first: an added line that makes failure survivable — only
+  // in files where the token is executed rather than quoted.
+  const ciRelevant = CI_RELEVANT_PATH.test(p);
+  const scannable = !DOC_FILE.test(p) && (ciRelevant || SHELL_FILE.test(p) || PIPELINE_YAML.test(p));
+  if (scannable && addedLines(patch).some((line) => suppressesFailure(line, ciRelevant))) {
     return REASON_FAILURE_SUPPRESSED;
   }
 

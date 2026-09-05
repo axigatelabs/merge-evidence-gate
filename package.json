@@ -1,17 +1,19 @@
 {
   "name": "merge-evidence-gate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Re-runs AI-agent pull requests in a clean environment, compares what the agent claimed to what actually happened, and posts a signed receipt that decides merge eligibility.",
   "license": "MIT",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "main": "dist/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "npm run build:action && npm run build:cli",
-    "build:action": "ncc build src/main.ts -o dist --source-map --license licenses.txt",
+    "build:action": "ncc build src/main.ts -o dist --license licenses.txt",
     "build:cli": "ncc build src/cli.ts -o dist/cli --license licenses.txt",
     "check": "npm run typecheck && npm test && npm run build"
   },

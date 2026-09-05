@@ -147,16 +147,27 @@ describe('C2 — count claims', () => {
   });
 
   it('compares passed and failed as well as the total', () => {
+    // Claimed more passes than ran: not a subset claim, so the comparison runs.
     const result = run({
-      claims: [countClaim('c2', '2 passed, 1 failed', { passed: 2, failed: 1 })],
+      claims: [countClaim('c2', '4 passed, 1 failed', { passed: 4, failed: 1 })],
       observed: observed({ tests: [executed('a'), executed('b'), executed('c')] }),
     });
     expect(result.discrepancies[0]?.evidence).toEqual([
-      'claimed passed=2',
+      'claimed passed=4',
       'observed passed=3',
       'claimed failed=1',
       'observed failed=0',
     ]);
+  });
+
+  it('treats a claim smaller than the run as a subset claim: unverifiable, not a mismatch', () => {
+    // "1 passed, 1 failed" describes 2 tests; 3 ran — the claim is about a subset.
+    const result = run({
+      claims: [countClaim('c2', '1 passed, 1 failed', { passed: 1, failed: 1 })],
+      observed: observed({ tests: [executed('a'), executed('b'), executed('c')] }),
+    });
+    expect(result.discrepancies).toEqual([]);
+    expect(result.unverifiable).toEqual(['c2']);
   });
 
   it('does not fire when the counts agree', () => {

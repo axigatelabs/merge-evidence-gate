@@ -44,8 +44,8 @@ and removals require a new major (`/v2`).
     {
       "id": "c2",
       "kind": "count",
-      "text": "68 tests, 0 failures",
-      "parsed": { "kind": "count", "total": 68, "failed": 0 },
+      "text": "480 tests, 0 failures",
+      "parsed": { "kind": "count", "total": 480, "failed": 0 },
       "body_hash": "sha256:…"
     }
   ],
@@ -53,7 +53,7 @@ and removals require a new major (`/v2`).
     "command": "go test -json -count=1 ./...",
     "exit_code": 0,
     "toolchain": { "go": "1.25.1" },
-    "totals": { "run": 412, "passed": 412, "failed": 0, "skipped": 3, "retried": 0 },
+    "totals": { "run": 412, "passed": 412, "failed": 0, "skipped": 0, "retried": 0 },
     "tests_digest": "sha256:…",
     "duration_s": 118
   },
@@ -65,17 +65,23 @@ and removals require a new major (`/v2`).
   },
   "discrepancies": [
     {
-      "check": "C3",
-      "severity": "fail",
-      "summary": "TestPrune was deleted in this PR",
-      "evidence": ["pkg/node/TestPrune present at base 9b0e7d2, absent at head 3f2a1c9"]
-    },
-    {
       "check": "C2",
       "severity": "needs-human",
       "claim": "c2",
-      "summary": "Claimed 68 tests; 412 ran",
-      "evidence": ["claimed total=68", "observed run=412"]
+      "summary": "Claimed 480 total; 412 observed",
+      "evidence": ["claimed total=480", "observed run=412"]
+    },
+    {
+      "check": "C3",
+      "severity": "fail",
+      "summary": "1 test present at base is absent at head",
+      "evidence": ["pkg/node/TestPrune enumerated at base, absent at head"]
+    },
+    {
+      "check": "C4",
+      "severity": "fail",
+      "summary": ".github/workflows/ci.yml edited",
+      "evidence": ["CI workflow edited"]
     }
   ],
   "verdict": "FAIL",
@@ -95,10 +101,11 @@ and removals require a new major (`/v2`).
 | `observed.command` | The exact command the gate executed, after injecting a machine-readable reporter. |
 | `observed.totals.retried` | Tests invoked more than once. Non-zero means retries were on — a flaky-masking signal. |
 | `observed.tests_digest` | `sha256:` over the sorted list of executed test ids. Lets a verifier confirm the set without the raw log. |
+| `observed.no_evidence` | Present and `true` when the command ran but produced no evidence about the PR: the runner died by signal (exit 128 + signal), could not start (exit 126/127 — the toolchain is missing), or its report is missing or unparsable. Command and count claims are then unverifiable and the verdict abstains — inconclusive, not failed. A report that says the suite failed to load, or a plain `cargo test` exit code, is evidence and does not set this. |
 | `diff.tests.deleted` | Test ids present at base and absent at head — computed from runner enumeration, not regex. |
 | `diff.sensitive_paths` | Verification-layer files touched: CI workflows, coverage config, `conftest.py`, agent rule files. |
 | `discrepancies[]` | One entry per rule hit. `severity` ∈ `fail`, `needs-human`, `info`. |
-| `verdict` | `PASS` (no fail/needs-human hits) · `NEEDS_HUMAN` · `FAIL` · `NEUTRAL` (no test command found — the gate abstains). |
+| `verdict` | `PASS` (no fail/needs-human hits) · `NEEDS_HUMAN` · `FAIL` · `NEUTRAL` (no test command found, or the run produced no per-test evidence — the gate abstains unless a check that needs no run, C3–C8, fired above `info`). |
 | `policy_version` | Version of the severity policy applied, so a receipt can be re-interpreted. |
 | `signature` | Present when the receipt was attested (`actions/attest`, in-toto v1 statement). `attestation_id` links to the Sigstore/GitHub record. |
 
@@ -106,12 +113,13 @@ and removals require a new major (`/v2`).
 
 | Check | Default severity |
 |-------|------------------|
-| C1 claimed command never ran / failed | `fail` |
+| C1 claimed command failed on the clean re-run | `fail` |
 | C2 claimed count ≠ observed | `needs-human` |
 | C3 tests deleted / renamed / skipped / focused | `fail` |
 | C4 verification-layer edits | `fail` |
 | C5 unmentioned dependency / lockfile change | `needs-human` |
 | C6 snapshot / golden updates | `needs-human` |
+| C7 "tests added" ticked, diff touches no test file | `needs-human` |
 | C8 scope creep | `info` |
 
 Overrides live in `.merge-evidence.yml` (see `.merge-evidence.example.yml`).

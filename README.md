@@ -108,13 +108,13 @@ Agent pull requests can now no longer merge on a claim alone.
 
 | ID | What it catches | Default verdict on hit |
 |----|-----------------|------------------------|
-| C1 | A claimed command never ran, or failed on a clean runner | **FAIL** |
+| C1 | A claimed command failed on a clean runner (a command the gate cannot map to the run is reported unverifiable, never failed) | **FAIL** |
 | C2 | The stated test count does not match what ran | needs human |
 | C3 | Tests deleted, renamed away, skipped, or `.only`-focused | **FAIL** |
 | C4 | CI workflow, coverage threshold, agent-rules file, or `conftest.py` edited; failure suppressed with `\|\| true` / `continue-on-error` | **FAIL** |
 | C5 | Dependency manifest or lockfile changed without being mentioned | needs human |
 | C6 | Snapshot or golden files updated | needs human |
-| C7 | *reserved — not assigned in v1* | — |
+| C7 | A ticked "I have added tests" box while the diff touches no test file | needs human |
 | C8 | Files changed outside what the description covers | info |
 
 Each claim ends as **Confirmed**, **Unsupported**, or **Contradicted**. Only
@@ -161,7 +161,7 @@ First hit wins (`detectTestCommand` in `src/core/runners/detect.ts`):
 2. `test-command:` in `.merge-evidence.yml`;
 3. the `test` target in a `Makefile`;
 4. `scripts.test` in `package.json` — invoked through the package manager implied
-   by the lockfile present (`pnpm-lock.yaml` → `pnpm test --`, `yarn.lock` →
+   by the lockfile present (`pnpm-lock.yaml` → `pnpm test`, `yarn.lock` →
    `yarn test`, `bun.lockb` → `bun run test`, otherwise `npm test --`);
 5. `go.mod` → `go test ./...`;
 6. `pyproject.toml`, `pytest.ini`, or `setup.cfg` → `pytest`;
@@ -299,7 +299,7 @@ something you can check.
 ```
 Merge-Evidence Gate — FAIL  (head 3f2a1c9)
 Claims vs observed
-  `go test ./...`             ran ✔  412/412 pass   (claimed 68 → observed 412) ✘ count
+  `go test ./...`             ran ✔  412/412 pass   (claimed 480 → observed 412) ✘ count
   "tests pass locally"        unverifiable
 Verification layer
   ✘ TestPrune deleted (pkg/node)     ✘ .github/workflows/ci.yml edited (unmentioned)
@@ -416,8 +416,10 @@ No. Fewer claims means fewer things to check, not a worse verdict. The gate only
 raises a discrepancy when the run *contradicts* something the description says.
 
 **Can an agent defeat it by writing a description with no claims?**
-It can avoid C1, C2, and C5 that way. C3, C4, C6, and C8 read the diff and the
-run, not the description, so they still fire. And a pull request that claims
+It can avoid C1, C2, and C7 that way — those are the claim-gated checks. C3, C4,
+C5, C6, and C8 read the diff and the run, so they still fire; C5 and C8 also
+read the description, and an empty one makes them fire on *more* (every
+dependency file and every source file is then unmentioned). And a pull request that claims
 nothing is a pull request a reviewer knows to read carefully.
 
 ## Status

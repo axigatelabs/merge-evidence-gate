@@ -78,9 +78,59 @@ export const EMPTY_TOTALS: ObservedRun['totals'] = {
 // ---------------------------------------------------------------------------
 
 export interface CommandResult {
+  /** Exit status; 128 + signal number when the process died by signal. */
   code: number;
   stdout: string;
   stderr: string;
+  /** Set when the process died by signal rather than exiting (`SIGKILL`, `SIGTERM`, or `unknown`). */
+  signal?: string;
+}
+
+/** Signal names by the exit status a POSIX shell reports for a child killed by that signal. */
+const SIGNAL_BY_EXIT: ReadonlyMap<number, string> = new Map([
+  [129, 'SIGHUP'],
+  [130, 'SIGINT'],
+  [131, 'SIGQUIT'],
+  [132, 'SIGILL'],
+  [134, 'SIGABRT'],
+  [135, 'SIGBUS'],
+  [136, 'SIGFPE'],
+  [137, 'SIGKILL'],
+  [139, 'SIGSEGV'],
+  [143, 'SIGTERM'],
+]);
+
+/**
+ * The notice a shell prints when a child dies by signal — bash's
+ * `bash: line 1:  1234 Killed  pnpm test`, sh's bare `Killed` — mapped to the
+ * signal. Only consulted when the exit status already says 128 + n, so a test
+ * that merely prints "Killed" on a normal exit is never mistaken for a kill.
+ */
+const SHELL_SIGNAL_NOTICE =
+  /(?:^|\n)(?:[^\n:]*:\s*)?(?:line \d+:\s*)?(?:\d+\s+)?(Killed|Terminated|Segmentation fault|Aborted|Hangup|Illegal instruction|Bus error|Floating point exception)(?:\s|$)/;
+const SIGNAL_BY_NOTICE: ReadonlyMap<string, string> = new Map([
+  ['Killed', 'SIGKILL'],
+  ['Terminated', 'SIGTERM'],
+  ['Segmentation fault', 'SIGSEGV'],
+  ['Aborted', 'SIGABRT'],
+  ['Hangup', 'SIGHUP'],
+  ['Illegal instruction', 'SIGILL'],
+  ['Bus error', 'SIGBUS'],
+  ['Floating point exception', 'SIGFPE'],
+]);
+
+/**
+ * The signal a test run died by, when the evidence says it did: the process
+ * itself was signalled (no exit status at all), or the shell reported 128 + n
+ * AND printed its kill notice. A bare 128 + n with no notice is left alone —
+ * mocha exits with its failure count, so 130 there is 130 failures.
+ */
+export function signalOf(result: CommandResult): string | undefined {
+  if (result.signal !== undefined) return result.signal;
+  if (result.code < 128) return undefined;
+  const notice = SHELL_SIGNAL_NOTICE.exec(result.stderr)?.[1];
+  if (notice === undefined) return undefined;
+  return SIGNAL_BY_NOTICE.get(notice) ?? SIGNAL_BY_EXIT.get(result.code) ?? 'unknown';
 }
 
 /** Environment for the test run: the runner's own, plus the reporter overlay. */
@@ -105,7 +155,11 @@ export async function execCapture(
   let stdout = '';
   let stderr = '';
   try {
-    const code = await exec.exec(commandLine, args, {
+    // @actions/exec types the result as a number, but a process that dies by
+    // signal has no exit status: Node reports null and the value comes through
+    // as-is. Record it as "killed by a signal we could not name" rather than
+    // letting `null` reach the receipt.
+    const code = (await exec.exec(commandLine, args, {
       cwd: options.cwd,
       ...(options.env === undefined ? {} : { env: options.env }),
       ignoreReturnCode: true,
@@ -118,7 +172,8 @@ export async function execCapture(
           stderr += data.toString();
         },
       },
-    });
+    })) as number | null;
+    if (code === null || code === undefined) return { code: 128, stdout, stderr, signal: 'unknown' };
     return { code, stdout, stderr };
   } catch (err) {
     return { code: 127, stdout, stderr: `${stderr}${err instanceof Error ? err.message : String(err)}` };
@@ -144,7 +199,11 @@ export async function shell(
   if (process.platform === 'win32') {
     return execCapture('pwsh', ['-NoProfile', '-Command', commandLine], options);
   }
-  return execCapture('bash', ['-c', commandLine], options);
+  // A trailing `exit "$rc"` keeps bash as the parent instead of exec-ing a
+  // single simple command: bash then reports 128 + n and prints its kill
+  // notice when the runner dies by signal, which is how a kill is told apart
+  // from a runner that exits with a large status of its own.
+  return execCapture('bash', ['-c', `${commandLine}\nrc=$?; exit "$rc"`], options);
 }
 
 // ---------------------------------------------------------------------------
@@ -274,11 +333,13 @@ export function parseReport(
   workDir: string,
   stdout: string,
   notes: string[],
-): { tests: ObservedRun['tests']; totals: ObservedRun['totals'] } {
+): { tests: ObservedRun['tests']; totals: ObservedRun['totals']; reportMissing?: boolean } {
   if (detected.note !== undefined) {
     core.info(`runner: ${detected.note}`);
     notes.push(`runner: ${detected.note}`);
   }
+  // An opaque family (plain cargo, make, an npm script hiding its runner) never
+  // has per-test output; its exit code is still the evidence for C1.
   if (adapters[detected.family] === undefined) {
     return { tests: [], totals: EMPTY_TOTALS };
   }
@@ -299,7 +360,7 @@ export function parseReport(
       const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
       core.warning(note);
       notes.push(note);
-      return { tests: [], totals: EMPTY_TOTALS };
+      return { tests: [], totals: EMPTY_TOTALS, reportMissing: true };
     }
   }
 
@@ -329,10 +390,13 @@ export function parseReport(
     }
   }
 
+  // The reporter never wrote: killed, or crashed before the report. This is the
+  // one case with no evidence at all — jest/vitest/pytest all write a report
+  // even when the suite fails to load, and that report IS evidence.
   const note = `runner: no machine-readable output at ${detected.reportPath}; per-test evidence is unavailable`;
   core.warning(note);
   notes.push(note);
-  return { tests: [], totals: EMPTY_TOTALS };
+  return { tests: [], totals: EMPTY_TOTALS, reportMissing: true };
 }
 
 /**
@@ -432,7 +496,13 @@ export async function runTests(
     writeSafely(join(workDir, detected.reportPath), result.stdout);
   }
 
-  const { tests, totals } = parseReport(detected, workDir, result.stdout, notes);
+  const { tests, totals, reportMissing } = parseReport(detected, workDir, result.stdout, notes);
+  const signal = signalOf(result);
+  if (signal !== undefined) {
+    const note = `runner: the test process died by ${signal} (exit ${result.code}); no evidence about the PR`;
+    core.warning(note);
+    notes.push(note);
+  }
 
   return {
     command: detected.command,
@@ -443,6 +513,8 @@ export async function runTests(
     totals,
     tests,
     reportPath: detected.reportPath,
+    ...(reportMissing === true ? { reportMissing: true } : {}),
+    ...(signal === undefined ? {} : { signal }),
   };
 }
 
@@ -474,7 +546,12 @@ export async function collectDiff(
 ): Promise<DiffAnalysis> {
   const files = await changedFiles(workDir, pr, notes);
   core.info(`diff: ${files.length} changed file(s)`);
-  return analyzeDiff(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow });
+  return {
+    ...analyzeDiff(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
+    // The raw count survives scope filtering, so a check can tell "nothing
+    // changed / base not comparable" apart from "only allow-listed paths changed".
+    fileCount: files.length,
+  };
 }
 
 export async function changedFiles(

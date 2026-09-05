@@ -17,6 +17,8 @@ severity:
   C2: needs-human
   # C5: lockfile / dependency manifest changed without being mentioned
   C5: needs-human
+  # C7: a ticked "I have added tests" box while the diff touches no test file
+  C7: needs-human
   # C8: files changed outside what the PR describes
   C8: info
 

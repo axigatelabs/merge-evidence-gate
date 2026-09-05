@@ -41,7 +41,11 @@ runs once per release, a broken commit on `build` is not caught by a robot — i
 is caught by whoever pulls next.
 
 `dist/` is gitignored on `build` and committed only at release time, so never
-commit a bundle from a task branch.
+commit a bundle from a task branch. The committed `dist/index.js` must be
+byte-identical to a fresh `npm run build` and must load with no sibling files
+(`node dist/index.js` outside a pull-request event prints a notice and exits
+0); CI checks both, because 0.1.0 shipped a bundle that required a gitignored
+`sourcemap-register.js` and crashed on every install.
 
 ## Rules for changes
 
@@ -106,9 +110,13 @@ it needs is a string in, structured tests out.
 
 ## Adding a check
 
-1. **Add the id.** Extend `CheckId` in [`src/core/types.ts`](src/core/types.ts).
-   Never reuse a retired id — receipts in the wild carry them. `C7` is
-   deliberately unassigned for this reason.
+1. **Add the id.** Extend `CheckId` in [`src/core/types.ts`](src/core/types.ts)
+   and `CHECK_IDS` in `src/core/reconcile/policy.ts`, and give it a default in
+   `DEFAULT_POLICY.severity` there — the map is partial, so an id you forget
+   silently resolves to `info` and never blocks (`test/reconcile/policy.test.ts`
+   pins the full map). Never reuse a retired id — receipts in the wild carry
+   them. (`C7` was held back until 0.2.0, when it became the "tests added"
+   check; the next free id is `C9`.)
 2. **Write the detection in the right module.** Something about the description
    goes in `src/core/claims/`; something about the diff goes in
    `src/core/diff/classify.ts` or `markers.ts`; something about the run goes in

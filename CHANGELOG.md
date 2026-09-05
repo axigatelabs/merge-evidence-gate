@@ -9,10 +9,109 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.1.0 — unreleased
+## 0.2.0 — 2026-09-05
 
-First development release. Not published to the Marketplace; the Action entry
-point is a stub, so nothing here is usable as a gate yet.
+Findings from the first real batch of the Claim–Reality Gap study (40 public
+Devin pull requests on mastra-ai/mastra re-run offline) and an adversarial
+review of the fix.
+
+### Added
+
+- **C7 — "tests added" with no test file in the diff.** A ticked checklist
+  line asserting that tests were added ("I have added meaningful tests", "I have
+  added tests that prove my fix is effective…" — ticked in 49 of the 140 agent
+  PR bodies sampled) is compared with the diff's test-file categories. Default
+  severity `needs-human`. The label pattern is verb-based and never matches the
+  sibling template line "New and existing unit tests pass", compound nouns
+  ("added a test plan section"), negations, or hedges ("if applicable"). With no
+  changed files to look at the claim is reported unverifiable. Rendered under
+  "Claims vs observed" as a claim line.
+- **`observed.no_evidence`** on the receipt: the command ran but produced no
+  evidence about the PR — the runner died by signal (exit 128 + signal), could
+  not start at all (exit 126/127: a toolchain missing from the runner), or its
+  report is missing or unparsable. Command and count claims are then
+  unverifiable and the verdict is `NEUTRAL` unless a check that needs no run
+  (C3–C8) fired above `info`. Before this, an OOM-killed run reported "Claimed
+  1480 total; 0 observed" and blocked the PR for a sandbox limit. Opaque
+  runners (plain `cargo test`, `make test`, a package script with no adapter)
+  keep their normal exit code as C1 evidence; the 128+ rule is not applied to
+  them because mocha and friends exit with the failure count.
+- **A killed runner is recorded as such.** When the test process dies by
+  signal, `exit_code` carries the shell's 128 + signal number instead of
+  `null`, and `ObservedRun.signal` names the signal when the shell's kill
+  notice identifies it (`Killed`, `Terminated`; `unknown` otherwise).
+- **Package-script claims map to their resolved runner.** A claimed
+  `pnpm test` / `npm test` / `yarn test` (claim family `npm`) now maps to the
+  observed run when the run was started by the same invocation, whether the
+  script resolved to vitest, jest, or an opaque runner — so C1 can fire on the
+  most common JavaScript claim. Before, such claims were always unverifiable.
+- **`ObservedRun.reportMissing`** and **`DiffAnalysis.fileCount`** (additive
+  contract fields) so the reconciler can tell "the reporter never wrote" from
+  "the report says zero tests ran", and "no changed files" from "only
+  allow-listed paths changed".
+- Test-file recognition for RSpec (`*_spec.rb` below `spec/`, `spec_helper.rb`,
+  `spec/support/`), Django's `tests.py`, `_test` / `_unittest` suffixes (Deno,
+  gtest, Dart, Elixir), Cypress `.cy.<script>` files, source files under `e2e/`
+  and `cypress/`, .NET `*.Tests/` projects, Flutter and Android test
+  directories, case-insensitive test directories (`Tests/`), and Rust inline
+  `#[test]` / `#[tokio::test]`-style blocks added to a source file. `spec/`
+  documents and class names such as `SpeedTest.java` or `V1PodSpec.java` are
+  deliberately not tests.
+- Study harness: per-container CPU and memory ceilings, memory sized from the
+  Docker VM and the parallel slots (`study/lib-resources.sh`),
+  `study/rerun-inconclusive.sh`, and `study/rerun-prs.sh` for specific rows.
+
+### Changed
+
+- A count claim on a run with no test command is reported unverifiable instead
+  of silently passing as "counts match". The same applies to an opaque runner
+  that enumerates no tests: nothing to compare, so nothing is "0 observed".
+- **C2 subset rule.** A count claim smaller than the run — "322 tests" for one
+  package while the gate ran a 5,904-test monorepo — is a subset claim and is
+  reported unverifiable; the run's failures may lie outside it. The claim's
+  size is its total or the sum of the parts it states; a bare failure count is
+  always compared, and a claim larger than the run still fires.
+- The "tests added" wordings are counted from the real extractor: a ticked
+  tests-added line appears in 49 of the 140 sampled bodies.
+- A raised `C8` severity now decides the verdict on a run that abstained for
+  lack of evidence, like every other run-independent check.
+- **C4 "CI failure suppressed" is scoped.** `|| true`, `set +e` and friends
+  count anywhere in a CI-relevant file (workflows and CI configs, `Makefile`,
+  `package.json`, `scripts/`, task runners) and, in other shell scripts,
+  Dockerfiles, and pipeline YAML, only on a line that runs a test command.
+  The gate's own pull request had flagged `docker volume rm … || true` in a
+  study helper — and a source comment mentioning `pytest || true` — as a
+  weakened CI. Source code, test fixtures, bundles, and documentation are
+  never scanned.
+- `study/summarize.mjs` scores only checkable claims (command, count, "tests
+  added"); every other checkbox is counted as stated, not checkable, and a
+  run-inconclusive PR still contributes its diff-based findings.
+
+### Fixed
+
+- **The published Action crashed on load.** `dist/index.js` was built with
+  ncc's `--source-map`, which prepends `require('./sourcemap-register.js')`;
+  that helper is gitignored, so every `uses: …@v1` run since 0.1.0 died with
+  `MODULE_NOT_FOUND` before reading the pull request. The action bundle is now
+  built without source maps, CI fails when the committed bundle differs from a
+  fresh build or does not load on its own, and the repository's own dogfood
+  workflow exercises the bundle on every pull request.
+
+### Known limitations
+
+- A bare `pnpm test` claim in a monorepo maps to the root run, although the
+  body may have meant one package's script. Combined with the next item this
+  can fail a PR for failures outside its package. Planned: scope the mapping
+  by workspace.
+- A suite that fails on a clean runner for reasons outside the diff (network,
+  missing keys) still fails C1 when the body claims the command. Base-commit
+  comparison is planned so that failures also present at the base are reported
+  as environment, not as a contradiction.
+
+## 0.1.0 — 2026-09-04
+
+First release, tagged `v0.1.0` / `v1` on a private repository (not on the
+Marketplace). Its published bundle crashed on load — see 0.2.0, "Fixed".
 
 ### Added
 
