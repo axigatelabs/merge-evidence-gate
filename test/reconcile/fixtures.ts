@@ -98,7 +98,7 @@ export function commandClaim(
   id: string,
   raw: string,
   parsed: Partial<Omit<Claim['parsed'], 'kind'>> & {
-    runner?: 'go' | 'pytest' | 'jest' | 'vitest' | 'cargo' | 'junit' | 'make' | 'npm' | 'unknown';
+    runner?: 'go' | 'pytest' | 'jest' | 'vitest' | 'node-test' | 'cargo' | 'junit' | 'make' | 'npm' | 'unknown';
     paths?: string[];
     nameFilters?: string[];
   } = {},

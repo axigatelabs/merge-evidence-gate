@@ -54,7 +54,7 @@ executed) is reported unverifiable — never a hit; see "How it is detected".
 code span whose opening matches a known test-runner invocation — `go test`,
 `pytest`, `python -m pytest`, `npm test`, `npm run test`, `pnpm test`,
 `yarn test`, `bun test`, `bun run test`, `cargo test`, `cargo nextest`,
-`make test`, `jest`, `vitest`, `./gradlew …`, `dotnet test`, `mvn …`, or a
+`make test`, `jest`, `vitest`, `node --test`, `./gradlew …`, `dotnet test`, `mvn …`, or a
 repo-local `scripts/test*.sh` (`COMMAND_PREFIXES` in
 `src/core/claims/extract.ts`). The prefix only matches at an identifier
 boundary, so `go testdata` is not a command claim. Nothing under a heading

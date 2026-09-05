@@ -76,6 +76,7 @@ export const REPORT_PATHS = {
   pytest: `${REPORT_DIR}/pytest-junit.xml`,
   jest: `${REPORT_DIR}/jest-results.json`,
   vitest: `${REPORT_DIR}/vitest-results.json`,
+  'node-test': `${REPORT_DIR}/node-test-junit.xml`,
   /** cargo-nextest writes `<junit.path>` under `target/nextest/<profile>/`. */
   nextest: 'target/nextest/ci/junit.xml',
   cargo: `${REPORT_DIR}/cargo-test.txt`,
@@ -105,11 +106,36 @@ const OPAQUE_NOTE =
   'no machine-readable reporter could be injected into this command; per-test evidence is unavailable.';
 
 /**
+ * node's test runner takes its reporter from NODE_OPTIONS, which reaches it
+ * through any wrapper (`npm test`, `make test`, a workspace package) and is
+ * inherited by the per-file child processes without clobbering the report.
+ * The destination is relative to the process's working directory, so a
+ * package run inside a monorepo writes its report where the nested-report
+ * merge expects it.
+ */
+const NODE_TEST_REPORTER_ARGS = (reportPath: string): string[] => [
+  '--test-reporter=junit',
+  `--test-reporter-destination=${reportPath}`,
+];
+
+const NODE_TEST_REPORTER_NOTE =
+  'the test script sets its own --test-reporter without a --test-reporter-destination, and node ' +
+  'refuses a second reporter unless every reporter has a destination; add ' +
+  '`--test-reporter-destination=stdout` to the script so the gate can attach its junit reporter.';
+
+/**
+ * `node --test`, `node --experimental-strip-types --test`, `node --import tsx
+ * --test`, `tsx --test` — the flag must be the standalone `--test`, not
+ * `--test-only` or `--test-reporter`.
+ */
+const NODE_TEST_INVOCATION = /\b(?:node|tsx)\b[^&|;\n]*?\s--test(?=\s|$)/;
+
+/**
  * The runner a command text invokes directly, when it is recognisable.
  * `nextest` is reported separately from `cargo` because only nextest produces
  * a per-test report.
  */
-type DirectRunner = 'go' | 'pytest' | 'jest' | 'vitest' | 'nextest' | 'cargo';
+type DirectRunner = 'go' | 'pytest' | 'jest' | 'vitest' | 'node-test' | 'nextest' | 'cargo';
 
 function classifyDirect(command: string): DirectRunner | undefined {
   if (/\bgo\s+test\b/.test(command)) return 'go';
@@ -117,6 +143,7 @@ function classifyDirect(command: string): DirectRunner | undefined {
   if (/\bpython[0-9.]*\s+-m\s+pytest\b/.test(command)) return 'pytest';
   if (/\bvitest\b/.test(command)) return 'vitest';
   if (/\bjest\b/.test(command)) return 'jest';
+  if (NODE_TEST_INVOCATION.test(command)) return 'node-test';
   if (/\bcargo\s+nextest\b/.test(command)) return 'nextest';
   if (/\bcargo\s+test\b/.test(command)) return 'cargo';
   return undefined;
@@ -183,6 +210,54 @@ function injectVitest(command: string, separator = ''): DetectedCommand {
     reporterArgs,
     env: { ...BASE_ENV, FORCE_COLOR: '0' },
     reportPath: REPORT_PATHS.vitest,
+  };
+}
+
+/** How many `--test-reporter` flags the text carries beyond its `--test-reporter-destination`s. */
+function unpairedReporters(text: string): number {
+  const reporters = (text.match(/--test-reporter(?:=|\s)/g) ?? []).length;
+  const destinations = (text.match(/--test-reporter-destination(?:=|\s)/g) ?? []).length;
+  return Math.max(0, reporters - destinations);
+}
+
+/**
+ * A directly written `node --test --test-reporter=spec` needs a destination for
+ * its own reporter before a second one can be attached; `stdout` is what it
+ * was getting anyway. Inserted right after `--test`, because node reads no
+ * flags after the first file argument.
+ */
+function balanceReporterDestinations(command: string): string {
+  const missing = unpairedReporters(command);
+  if (missing === 0) return command;
+  const filler = ' --test-reporter-destination=stdout'.repeat(missing);
+  return command.replace(/--test(?=\s|$)/, (m) => `${m}${filler}`);
+}
+
+/**
+ * Wrap a command that runs node's test runner (directly, or under `npm test`,
+ * `make test`, a workspace package). `scriptText` is the text that actually
+ * invokes node — the script body for a wrapper, the command itself when
+ * direct — and decides whether a second reporter can be attached at all.
+ */
+function wrapNodeTestEnv(command: string, scriptText: string): DetectedCommand {
+  const reportPath = REPORT_PATHS['node-test'];
+  if (unpairedReporters(scriptText) > 0) {
+    return {
+      family: 'node-test',
+      command,
+      reporterArgs: [],
+      env: { ...BASE_ENV },
+      reportPath,
+      note: NODE_TEST_REPORTER_NOTE,
+    };
+  }
+  const reporterArgs = NODE_TEST_REPORTER_ARGS(reportPath);
+  return {
+    family: 'node-test',
+    command,
+    reporterArgs,
+    env: { ...BASE_ENV, NODE_OPTIONS: reporterArgs.join(' ') },
+    reportPath,
   };
 }
 
@@ -340,15 +415,15 @@ function parsePackageJson(raw: string | undefined): PackageJson | undefined {
   return undefined;
 }
 
-/** jest vs vitest, from the script text first, then the declared dependencies. */
+type NodeRunner = 'jest' | 'vitest' | 'node-test';
+
+/** jest, vitest or node's own runner, from the script text first, then the declared dependencies. */
 function classifyNodeRunner(
   scriptText: string | undefined,
   pkg: PackageJson | undefined,
-): 'jest' | 'vitest' | undefined {
-  if (scriptText !== undefined) {
-    if (/\bvitest\b/.test(scriptText)) return 'vitest';
-    if (/\bjest\b/.test(scriptText)) return 'jest';
-  }
+): NodeRunner | undefined {
+  const named = runnerInText(scriptText);
+  if (named !== undefined) return named;
   const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
   if (deps['vitest'] !== undefined) return 'vitest';
   if (deps['jest'] !== undefined) return 'jest';
@@ -521,8 +596,7 @@ function resolveWrittenCommand(
     // The command already names the package manager, so append args to it
     // directly. Only npm needs the `--` separator (see PM_INVOCATION).
     const separator = /(^|\s)npm(\s|$)/.test(command) ? ' --' : '';
-    if (node === 'vitest') return injectVitest(command, separator);
-    if (node === 'jest') return injectJest(command, separator);
+    if (node !== undefined) return injectNodeRunner(node, command, separator, pkg?.scripts?.['test'] ?? '');
     return opaque(command, 'npm');
   }
 
@@ -539,6 +613,10 @@ function injectDirect(command: string, runner: DirectRunner): DetectedCommand {
       return injectJest(command);
     case 'vitest':
       return injectVitest(command);
+    case 'node-test': {
+      const balanced = balanceReporterDestinations(command);
+      return wrapNodeTestEnv(balanced, balanced);
+    }
     case 'nextest':
       return injectNextest(command);
     case 'cargo':
@@ -548,8 +626,9 @@ function injectDirect(command: string, runner: DirectRunner): DetectedCommand {
 
 /**
  * A Makefile target runs an opaque recipe, so the reporter can only be injected
- * through the environment. pytest (PYTEST_ADDOPTS) and go (GOFLAGS) support
- * that; jest/vitest/cargo do not, so those degrade to an opaque run with a note.
+ * through the environment. pytest (PYTEST_ADDOPTS), go (GOFLAGS) and node's
+ * runner (NODE_OPTIONS) support that; jest/vitest/cargo do not, so those
+ * degrade to an opaque run with a note.
  */
 function fromMakeRecipe(
   command: string,
@@ -560,6 +639,7 @@ function fromMakeRecipe(
   const direct = classifyDirect(text);
   if (direct === 'pytest') return wrapPytestEnv(command);
   if (direct === 'go') return wrapGoEnv(command);
+  if (direct === 'node-test') return wrapNodeTestEnv(command, text);
   if (direct === 'nextest') {
     return { ...injectNextest(command), command, reporterArgs: [] };
   }
@@ -586,11 +666,19 @@ const PLACEHOLDER_TEST_SCRIPT = /no test specified/i;
 const SIBLING_TEST_SCRIPTS: readonly string[] = ['test:unit', 'test:ci', 'test:jest', 'test:vitest', 'unit', 'test:unit:ci', 'jest', 'vitest'];
 
 /** The runner a script's own text names, if any — deps are not consulted here. */
-function runnerInText(text: string | undefined): 'jest' | 'vitest' | undefined {
+function runnerInText(text: string | undefined): NodeRunner | undefined {
   if (text === undefined) return undefined;
   if (/\bvitest\b/.test(text)) return 'vitest';
   if (/\bjest\b/.test(text)) return 'jest';
+  if (NODE_TEST_INVOCATION.test(text)) return 'node-test';
   return undefined;
+}
+
+/** Reporter injection for a package-manager invocation of `scriptText`, by the runner it names. */
+function injectNodeRunner(runner: NodeRunner, command: string, separator: string, scriptText: string): DetectedCommand {
+  if (runner === 'vitest') return injectVitest(command, separator);
+  if (runner === 'jest') return injectJest(command, separator);
+  return wrapNodeTestEnv(command, scriptText);
 }
 
 function fromPackageScript(
@@ -610,20 +698,22 @@ function fromPackageScript(
     for (const match of script.matchAll(NESTED_RUN)) {
       const name = match[1];
       if (name === undefined) continue;
-      const nested = runnerInText(pkg?.scripts?.[name]);
+      const nestedText = pkg?.scripts?.[name];
+      const nested = runnerInText(nestedText);
       if (nested === undefined) continue;
       const command = `${pm} run ${name}`;
-      const detected = nested === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
+      const detected = injectNodeRunner(nested, command, separator, nestedText ?? '');
       return { ...detected, note: `the \`test\` script chains to \`${name}\`; running that step directly` };
     }
     // `test` is npm's placeholder, or runs no runner and chains to none: the
     // suite lives under a sibling script.
     const placeholder = PLACEHOLDER_TEST_SCRIPT.test(script);
     for (const name of SIBLING_TEST_SCRIPTS) {
-      const sibling = runnerInText(pkg?.scripts?.[name]);
+      const siblingText = pkg?.scripts?.[name];
+      const sibling = runnerInText(siblingText);
       if (sibling === undefined) continue;
       const command = `${pm} run ${name}`;
-      const detected = sibling === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
+      const detected = injectNodeRunner(sibling, command, separator, siblingText ?? '');
       return {
         ...detected,
         note: placeholder
@@ -634,10 +724,9 @@ function fromPackageScript(
   }
 
   const node = classifyNodeRunner(script, pkg);
-  if (node === 'vitest') return injectVitest(invocation.command, invocation.separator);
-  if (node === 'jest') return injectJest(invocation.command, invocation.separator);
+  if (node !== undefined) return injectNodeRunner(node, invocation.command, invocation.separator, script);
 
-  // The script runs something else entirely (`node --test`, a shell script, …).
+  // The script runs something else entirely (a shell script, a custom harness, …).
   const direct = classifyDirect(script);
   if (direct === 'pytest') return wrapPytestEnv(invocation.command);
   if (direct === 'go') return wrapGoEnv(invocation.command);

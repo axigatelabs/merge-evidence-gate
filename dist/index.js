@@ -83019,6 +83019,86 @@ async function fetchMergeBase(octokit, ref, base, head) {
 
 /***/ }),
 
+/***/ 28263:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.applyVerdict = applyVerdict;
+/**
+ * The verdict → job status step of the Action, kept apart from `main.ts` so it
+ * can be tested without running the Action.
+ */
+const core = __importStar(__nccwpck_require__(37484));
+/**
+ * Translate the verdict into the job's exit status.
+ *
+ * `fail` (the default) fails the job on FAIL; `needs-human` also fails it on
+ * NEEDS_HUMAN; `never` keeps the job green whatever the verdict — the comment,
+ * job summary, artifact and outputs still carry it — which is how a team runs
+ * the gate advisory-only before making it a required check.
+ */
+function applyVerdict(verdict, failOn, title, sink = core) {
+    if (failOn === 'never') {
+        if (verdict === 'FAIL' || verdict === 'NEEDS_HUMAN') {
+            sink.warning(`${title} — fail-on is 'never', so the job stays green; read the receipt`);
+        }
+        else {
+            sink.info(title);
+        }
+        return;
+    }
+    if (verdict === 'FAIL') {
+        sink.setFailed(title);
+        return;
+    }
+    if (verdict === 'NEEDS_HUMAN') {
+        if (failOn === 'needs-human')
+            sink.setFailed(title);
+        else
+            sink.warning(`${title} — a human should look at this before merging`);
+        return;
+    }
+    sink.info(title);
+}
+
+
+/***/ }),
+
 /***/ 87906:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -83147,6 +83227,7 @@ const COMMAND_PREFIXES = [
     ['python -m pytest', 'pytest'],
     ['pytest', 'pytest'],
     ['go test', 'go'],
+    ['node --test', 'node-test'],
     ['npm run test', 'npm'],
     ['npm test', 'npm'],
     ['pnpm test', 'npm'],
@@ -84661,8 +84742,8 @@ function selectorMatches(selector, testIds) {
     }
     return testIds.some((id) => id === path || id.startsWith(path));
 }
-/** Runner families a package script resolves to: `pnpm test` → vitest, jest, or an opaque script. */
-const NODE_SCRIPT_RUNNERS = new Set(['jest', 'vitest', 'npm']);
+/** Runner families a package script resolves to: `pnpm test` → vitest, jest, node's runner, or an opaque script. */
+const NODE_SCRIPT_RUNNERS = new Set(['jest', 'vitest', 'node-test', 'npm']);
 /**
  * The package-manager invocation a command makes, reduced to its first two
  * words: `npm run test -- --json` and `npm test` are the same one. The observed
@@ -85824,6 +85905,138 @@ exports.pytestAdapter = {
 
 /***/ }),
 
+/***/ 6483:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.nodeTestAdapter = void 0;
+exports.parseNodeTestJUnit = parseNodeTestJUnit;
+/**
+ * Adapter for node's built-in test runner (`node --test`), through its `junit`
+ * reporter.
+ *
+ * The shape is JUnit with two node-specific habits: `describe` blocks become
+ * nested `<testsuite>` elements while top-level tests sit directly under
+ * `<testsuites>`, and every `<testcase>` carries `classname="test"` (a
+ * constant) plus an absolute `file`. Identity is therefore built from the
+ * file, made relative to the directory the tests ran in, and the suite path:
+ * `test/math.test.js::add > adds two numbers`. A skipped or todo test is a
+ * `<skipped>` child; a failure is a `<failure>` child.
+ */
+const fast_xml_parser_1 = __nccwpck_require__(50591);
+const node_path_1 = __nccwpck_require__(76760);
+const go_js_1 = __nccwpck_require__(27536);
+const ARRAY_TAGS = new Set(['testsuite', 'testcase', 'failure', 'error', 'skipped']);
+const parser = new fast_xml_parser_1.XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    parseAttributeValue: false,
+    parseTagValue: false,
+    trimValues: true,
+    isArray: (tagName) => ARRAY_TAGS.has(tagName),
+});
+function isNode(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function attr(node, name) {
+    const value = node[`@_${name}`];
+    if (typeof value === 'string' && value.length > 0)
+        return value;
+    if (typeof value === 'number')
+        return String(value);
+    return undefined;
+}
+function childCount(node, tag) {
+    const value = node[tag];
+    if (value === undefined)
+        return 0;
+    return Array.isArray(value) ? value.length : 1;
+}
+/** Forward slashes everywhere, so an id is the same on Windows runners. */
+function posix(path) {
+    return path.replace(/\\/g, '/');
+}
+function relativeFile(file, cwd) {
+    if (cwd === undefined || !(0, node_path_1.isAbsolute)(file))
+        return posix(file);
+    const rel = (0, node_path_1.relative)(cwd, file);
+    return rel === '' || rel.startsWith('..') ? posix(file) : posix(rel);
+}
+/** Walk suites depth-first, carrying the suite names down to each testcase. */
+function walk(node, suites, cwd, out) {
+    const cases = node['testcase'];
+    if (Array.isArray(cases)) {
+        for (const testcase of cases) {
+            if (!isNode(testcase))
+                continue;
+            const name = attr(testcase, 'name');
+            if (name === undefined)
+                continue;
+            const file = attr(testcase, 'file');
+            const path = [...suites, name].join(' > ');
+            const rel = file === undefined ? undefined : relativeFile(file, cwd);
+            const test = {
+                id: rel === undefined ? path : `${rel}::${path}`,
+                status: childCount(testcase, 'failure') + childCount(testcase, 'error') > 0
+                    ? 'failed'
+                    : childCount(testcase, 'skipped') > 0
+                        ? 'skipped'
+                        : 'passed',
+            };
+            if (rel !== undefined)
+                test.file = rel;
+            const time = attr(testcase, 'time');
+            if (time !== undefined) {
+                const seconds = Number.parseFloat(time);
+                if (Number.isFinite(seconds))
+                    test.durationMs = seconds * 1000;
+            }
+            out.push(test);
+        }
+    }
+    const nested = node['testsuite'];
+    if (Array.isArray(nested)) {
+        for (const suite of nested) {
+            if (!isNode(suite))
+                continue;
+            const name = attr(suite, 'name');
+            walk(suite, name === undefined ? suites : [...suites, name], cwd, out);
+        }
+    }
+}
+function parseNodeTestJUnit(raw, options = {}) {
+    if (raw.trim() === '')
+        return { tests: [], totals: (0, go_js_1.countTotals)([]) };
+    const document = parser.parse(raw);
+    const tests = [];
+    if (isNode(document)) {
+        const root = document['testsuites'];
+        if (Array.isArray(root)) {
+            for (const item of root)
+                if (isNode(item))
+                    walk(item, [], options.cwd, tests);
+        }
+        else if (isNode(root)) {
+            walk(root, [], options.cwd, tests);
+        }
+        else {
+            // A bare <testsuite> root, or a document with no wrapper at all.
+            walk(document, [], options.cwd, tests);
+        }
+    }
+    tests.sort(go_js_1.compareById);
+    return { tests, totals: (0, go_js_1.countTotals)(tests) };
+}
+exports.nodeTestAdapter = {
+    family: 'node-test',
+    parse: parseNodeTestJUnit,
+};
+
+
+/***/ }),
+
 /***/ 83764:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -85845,6 +86058,7 @@ exports.REPORT_PATHS = {
     pytest: `${exports.REPORT_DIR}/pytest-junit.xml`,
     jest: `${exports.REPORT_DIR}/jest-results.json`,
     vitest: `${exports.REPORT_DIR}/vitest-results.json`,
+    'node-test': `${exports.REPORT_DIR}/node-test-junit.xml`,
     /** cargo-nextest writes `<junit.path>` under `target/nextest/<profile>/`. */
     nextest: 'target/nextest/ci/junit.xml',
     cargo: `${exports.REPORT_DIR}/cargo-test.txt`,
@@ -85864,6 +86078,27 @@ const NEXTEST_NOTE = 'nextest JUnit output requires `[profile.ci.junit] path = "
 const CARGO_NOTE = 'plain `cargo test` has no per-test machine-readable output; install cargo-nextest and add a ' +
     '`ci` profile with JUnit enabled for per-test evidence.';
 const OPAQUE_NOTE = 'no machine-readable reporter could be injected into this command; per-test evidence is unavailable.';
+/**
+ * node's test runner takes its reporter from NODE_OPTIONS, which reaches it
+ * through any wrapper (`npm test`, `make test`, a workspace package) and is
+ * inherited by the per-file child processes without clobbering the report.
+ * The destination is relative to the process's working directory, so a
+ * package run inside a monorepo writes its report where the nested-report
+ * merge expects it.
+ */
+const NODE_TEST_REPORTER_ARGS = (reportPath) => [
+    '--test-reporter=junit',
+    `--test-reporter-destination=${reportPath}`,
+];
+const NODE_TEST_REPORTER_NOTE = 'the test script sets its own --test-reporter without a --test-reporter-destination, and node ' +
+    'refuses a second reporter unless every reporter has a destination; add ' +
+    '`--test-reporter-destination=stdout` to the script so the gate can attach its junit reporter.';
+/**
+ * `node --test`, `node --experimental-strip-types --test`, `node --import tsx
+ * --test`, `tsx --test` — the flag must be the standalone `--test`, not
+ * `--test-only` or `--test-reporter`.
+ */
+const NODE_TEST_INVOCATION = /\b(?:node|tsx)\b[^&|;\n]*?\s--test(?=\s|$)/;
 function classifyDirect(command) {
     if (/\bgo\s+test\b/.test(command))
         return 'go';
@@ -85875,6 +86110,8 @@ function classifyDirect(command) {
         return 'vitest';
     if (/\bjest\b/.test(command))
         return 'jest';
+    if (NODE_TEST_INVOCATION.test(command))
+        return 'node-test';
     if (/\bcargo\s+nextest\b/.test(command))
         return 'nextest';
     if (/\bcargo\s+test\b/.test(command))
@@ -85937,6 +86174,52 @@ function injectVitest(command, separator = '') {
         reporterArgs,
         env: { ...BASE_ENV, FORCE_COLOR: '0' },
         reportPath: exports.REPORT_PATHS.vitest,
+    };
+}
+/** How many `--test-reporter` flags the text carries beyond its `--test-reporter-destination`s. */
+function unpairedReporters(text) {
+    const reporters = (text.match(/--test-reporter(?:=|\s)/g) ?? []).length;
+    const destinations = (text.match(/--test-reporter-destination(?:=|\s)/g) ?? []).length;
+    return Math.max(0, reporters - destinations);
+}
+/**
+ * A directly written `node --test --test-reporter=spec` needs a destination for
+ * its own reporter before a second one can be attached; `stdout` is what it
+ * was getting anyway. Inserted right after `--test`, because node reads no
+ * flags after the first file argument.
+ */
+function balanceReporterDestinations(command) {
+    const missing = unpairedReporters(command);
+    if (missing === 0)
+        return command;
+    const filler = ' --test-reporter-destination=stdout'.repeat(missing);
+    return command.replace(/--test(?=\s|$)/, (m) => `${m}${filler}`);
+}
+/**
+ * Wrap a command that runs node's test runner (directly, or under `npm test`,
+ * `make test`, a workspace package). `scriptText` is the text that actually
+ * invokes node — the script body for a wrapper, the command itself when
+ * direct — and decides whether a second reporter can be attached at all.
+ */
+function wrapNodeTestEnv(command, scriptText) {
+    const reportPath = exports.REPORT_PATHS['node-test'];
+    if (unpairedReporters(scriptText) > 0) {
+        return {
+            family: 'node-test',
+            command,
+            reporterArgs: [],
+            env: { ...BASE_ENV },
+            reportPath,
+            note: NODE_TEST_REPORTER_NOTE,
+        };
+    }
+    const reporterArgs = NODE_TEST_REPORTER_ARGS(reportPath);
+    return {
+        family: 'node-test',
+        command,
+        reporterArgs,
+        env: { ...BASE_ENV, NODE_OPTIONS: reporterArgs.join(' ') },
+        reportPath,
     };
 }
 function injectNextest(command) {
@@ -86084,14 +86367,11 @@ function parsePackageJson(raw) {
     }
     return undefined;
 }
-/** jest vs vitest, from the script text first, then the declared dependencies. */
+/** jest, vitest or node's own runner, from the script text first, then the declared dependencies. */
 function classifyNodeRunner(scriptText, pkg) {
-    if (scriptText !== undefined) {
-        if (/\bvitest\b/.test(scriptText))
-            return 'vitest';
-        if (/\bjest\b/.test(scriptText))
-            return 'jest';
-    }
+    const named = runnerInText(scriptText);
+    if (named !== undefined)
+        return named;
     const deps = { ...pkg?.dependencies, ...pkg?.devDependencies };
     if (deps['vitest'] !== undefined)
         return 'vitest';
@@ -86247,10 +86527,8 @@ function resolveWrittenCommand(command, files) {
         // The command already names the package manager, so append args to it
         // directly. Only npm needs the `--` separator (see PM_INVOCATION).
         const separator = /(^|\s)npm(\s|$)/.test(command) ? ' --' : '';
-        if (node === 'vitest')
-            return injectVitest(command, separator);
-        if (node === 'jest')
-            return injectJest(command, separator);
+        if (node !== undefined)
+            return injectNodeRunner(node, command, separator, pkg?.scripts?.['test'] ?? '');
         return opaque(command, 'npm');
     }
     return opaque(command, 'make');
@@ -86265,6 +86543,10 @@ function injectDirect(command, runner) {
             return injectJest(command);
         case 'vitest':
             return injectVitest(command);
+        case 'node-test': {
+            const balanced = balanceReporterDestinations(command);
+            return wrapNodeTestEnv(balanced, balanced);
+        }
         case 'nextest':
             return injectNextest(command);
         case 'cargo':
@@ -86273,8 +86555,9 @@ function injectDirect(command, runner) {
 }
 /**
  * A Makefile target runs an opaque recipe, so the reporter can only be injected
- * through the environment. pytest (PYTEST_ADDOPTS) and go (GOFLAGS) support
- * that; jest/vitest/cargo do not, so those degrade to an opaque run with a note.
+ * through the environment. pytest (PYTEST_ADDOPTS), go (GOFLAGS) and node's
+ * runner (NODE_OPTIONS) support that; jest/vitest/cargo do not, so those
+ * degrade to an opaque run with a note.
  */
 function fromMakeRecipe(command, recipe, files) {
     const text = recipe.join('\n');
@@ -86283,6 +86566,8 @@ function fromMakeRecipe(command, recipe, files) {
         return wrapPytestEnv(command);
     if (direct === 'go')
         return wrapGoEnv(command);
+    if (direct === 'node-test')
+        return wrapNodeTestEnv(command, text);
     if (direct === 'nextest') {
         return { ...injectNextest(command), command, reporterArgs: [] };
     }
@@ -86313,7 +86598,17 @@ function runnerInText(text) {
         return 'vitest';
     if (/\bjest\b/.test(text))
         return 'jest';
+    if (NODE_TEST_INVOCATION.test(text))
+        return 'node-test';
     return undefined;
+}
+/** Reporter injection for a package-manager invocation of `scriptText`, by the runner it names. */
+function injectNodeRunner(runner, command, separator, scriptText) {
+    if (runner === 'vitest')
+        return injectVitest(command, separator);
+    if (runner === 'jest')
+        return injectJest(command, separator);
+    return wrapNodeTestEnv(command, scriptText);
 }
 function fromPackageScript(script, pkg, files) {
     const pm = readPackageManager(files);
@@ -86328,22 +86623,24 @@ function fromPackageScript(script, pkg, files) {
             const name = match[1];
             if (name === undefined)
                 continue;
-            const nested = runnerInText(pkg?.scripts?.[name]);
+            const nestedText = pkg?.scripts?.[name];
+            const nested = runnerInText(nestedText);
             if (nested === undefined)
                 continue;
             const command = `${pm} run ${name}`;
-            const detected = nested === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
+            const detected = injectNodeRunner(nested, command, separator, nestedText ?? '');
             return { ...detected, note: `the \`test\` script chains to \`${name}\`; running that step directly` };
         }
         // `test` is npm's placeholder, or runs no runner and chains to none: the
         // suite lives under a sibling script.
         const placeholder = PLACEHOLDER_TEST_SCRIPT.test(script);
         for (const name of SIBLING_TEST_SCRIPTS) {
-            const sibling = runnerInText(pkg?.scripts?.[name]);
+            const siblingText = pkg?.scripts?.[name];
+            const sibling = runnerInText(siblingText);
             if (sibling === undefined)
                 continue;
             const command = `${pm} run ${name}`;
-            const detected = sibling === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
+            const detected = injectNodeRunner(sibling, command, separator, siblingText ?? '');
             return {
                 ...detected,
                 note: placeholder
@@ -86353,11 +86650,9 @@ function fromPackageScript(script, pkg, files) {
         }
     }
     const node = classifyNodeRunner(script, pkg);
-    if (node === 'vitest')
-        return injectVitest(invocation.command, invocation.separator);
-    if (node === 'jest')
-        return injectJest(invocation.command, invocation.separator);
-    // The script runs something else entirely (`node --test`, a shell script, …).
+    if (node !== undefined)
+        return injectNodeRunner(node, invocation.command, invocation.separator, script);
+    // The script runs something else entirely (a shell script, a custom harness, …).
     const direct = classifyDirect(script);
     if (direct === 'pytest')
         return wrapPytestEnv(invocation.command);
@@ -86375,7 +86670,7 @@ function fromPackageScript(script, pkg, files) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.adapters = exports.parseJestJson = exports.vitestAdapter = exports.jestAdapter = exports.parseJUnitXml = exports.pytestAdapter = exports.junitAdapter = exports.parseGoTestJson = exports.goAdapter = exports.REPORT_PATHS = exports.REPORT_DIR = exports.MAX_WORKSPACE_PACKAGES = exports.detectWorkspaceCommand = exports.detectTestCommand = void 0;
+exports.adapters = exports.parseNodeTestJUnit = exports.nodeTestAdapter = exports.parseJestJson = exports.vitestAdapter = exports.jestAdapter = exports.parseJUnitXml = exports.pytestAdapter = exports.junitAdapter = exports.parseGoTestJson = exports.goAdapter = exports.REPORT_PATHS = exports.REPORT_DIR = exports.MAX_WORKSPACE_PACKAGES = exports.detectWorkspaceCommand = exports.detectTestCommand = void 0;
 exports.normalize = normalize;
 exports.testsDigest = testsDigest;
 /**
@@ -86391,6 +86686,7 @@ const node_crypto_1 = __nccwpck_require__(77598);
 const go_js_1 = __nccwpck_require__(27536);
 const jest_js_1 = __nccwpck_require__(18468);
 const junit_js_1 = __nccwpck_require__(20904);
+const node_test_js_1 = __nccwpck_require__(6483);
 var detect_js_1 = __nccwpck_require__(83764);
 Object.defineProperty(exports, "detectTestCommand", ({ enumerable: true, get: function () { return detect_js_1.detectTestCommand; } }));
 Object.defineProperty(exports, "detectWorkspaceCommand", ({ enumerable: true, get: function () { return detect_js_1.detectWorkspaceCommand; } }));
@@ -86408,6 +86704,9 @@ var jest_js_2 = __nccwpck_require__(18468);
 Object.defineProperty(exports, "jestAdapter", ({ enumerable: true, get: function () { return jest_js_2.jestAdapter; } }));
 Object.defineProperty(exports, "vitestAdapter", ({ enumerable: true, get: function () { return jest_js_2.vitestAdapter; } }));
 Object.defineProperty(exports, "parseJestJson", ({ enumerable: true, get: function () { return jest_js_2.parseJestJson; } }));
+var node_test_js_2 = __nccwpck_require__(6483);
+Object.defineProperty(exports, "nodeTestAdapter", ({ enumerable: true, get: function () { return node_test_js_2.nodeTestAdapter; } }));
+Object.defineProperty(exports, "parseNodeTestJUnit", ({ enumerable: true, get: function () { return node_test_js_2.parseNodeTestJUnit; } }));
 /**
  * Adapter per runner family. `undefined` means the family produces no per-test
  * machine-readable output, so the gate can record that a command ran but cannot
@@ -86421,6 +86720,7 @@ exports.adapters = {
     pytest: junit_js_1.pytestAdapter,
     jest: jest_js_1.jestAdapter,
     vitest: jest_js_1.vitestAdapter,
+    'node-test': node_test_js_1.nodeTestAdapter,
     junit: junit_js_1.junitAdapter,
     cargo: undefined,
     make: undefined,
@@ -86434,12 +86734,12 @@ exports.adapters = {
  * Throws when the family has no adapter — the caller must check
  * `adapters[family]` (or the `note` on the detected command) first.
  */
-function normalize(family, raw) {
+function normalize(family, raw, options = {}) {
     const adapter = exports.adapters[family];
     if (adapter === undefined) {
         throw new Error(`no runner adapter for family '${family}': no machine-readable output to parse`);
     }
-    const { tests } = adapter.parse(raw);
+    const { tests } = adapter.parse(raw, options);
     const sorted = [...tests].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     return { tests: sorted, totals: (0, go_js_1.countTotals)(sorted) };
 }
@@ -86534,6 +86834,7 @@ const artifact_1 = __nccwpck_require__(76846);
 const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
 const github_js_1 = __nccwpck_require__(36339);
+const verdict_js_1 = __nccwpck_require__(28263);
 const pipeline_js_1 = __nccwpck_require__(15165);
 /** Events that carry a pull request worth gating. */
 const GATE_EVENTS = new Set(['pull_request', 'pull_request_target', 'merge_group']);
@@ -86565,8 +86866,8 @@ function optionalBoolInput(name) {
 }
 function readInputs() {
     const failOnRaw = core.getInput('fail-on').trim().toLowerCase();
-    if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human') {
-        core.warning(`input 'fail-on': expected 'fail' or 'needs-human', got '${failOnRaw}' — using 'fail'`);
+    if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human' && failOnRaw !== 'never') {
+        core.warning(`input 'fail-on': expected 'fail', 'needs-human' or 'never', got '${failOnRaw}' — using 'fail'`);
     }
     const baseRaw = core.getInput('base-comparison').trim().toLowerCase();
     if (baseRaw !== '' && baseRaw !== 'auto' && baseRaw !== 'never') {
@@ -86576,7 +86877,7 @@ function readInputs() {
         token: core.getInput('github-token'),
         testCommand: core.getInput('test-command').trim(),
         agentsOnly: optionalBoolInput('agents-only'),
-        failOn: failOnRaw === 'needs-human' ? 'needs-human' : 'fail',
+        failOn: failOnRaw === 'needs-human' || failOnRaw === 'never' ? failOnRaw : 'fail',
         baseComparison: baseRaw === 'never' ? 'never' : 'auto',
         comment: boolInput('comment', true),
         uploadReceipt: boolInput('upload-receipt', true),
@@ -86671,21 +86972,6 @@ function setOutputs(verdict, discrepancies, receiptPath) {
     core.setOutput('discrepancies', String(discrepancies));
     core.setOutput('receipt-path', receiptPath);
 }
-/** Translate the verdict into the job's exit status. */
-function applyVerdict(verdict, failOn, title) {
-    if (verdict === 'FAIL') {
-        core.setFailed(title);
-        return;
-    }
-    if (verdict === 'NEEDS_HUMAN') {
-        if (failOn === 'needs-human')
-            core.setFailed(title);
-        else
-            core.warning(`${title} — a human should look at this before merging`);
-        return;
-    }
-    core.info(title);
-}
 // ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
@@ -86763,7 +87049,7 @@ async function run() {
     if (inputs.comment) {
         await publishComment(octokit, ref, pr.number, rendered.marker, rendered.markdown);
     }
-    applyVerdict(verdict, inputs.failOn, rendered.title);
+    (0, verdict_js_1.applyVerdict)(verdict, inputs.failOn, rendered.title);
 }
 run().catch((err) => {
     // Reaching here means the gate itself broke, not that the PR is bad. Say so
@@ -86815,6 +87101,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.EMPTY_TOTALS = exports.RUN_LOG = void 0;
 exports.signalOf = signalOf;
+exports.realDir = realDir;
 exports.mergedEnv = mergedEnv;
 exports.pathWithBin = pathWithBin;
 exports.execCapture = execCapture;
@@ -86930,13 +87217,34 @@ function signalOf(result) {
     return SIGNAL_BY_NOTICE.get(notice) ?? SIGNAL_BY_EXIT.get(result.code) ?? 'unknown';
 }
 /** Environment for the test run: the runner's own, plus the reporter overlay. */
+/**
+ * The work dir with symlinks resolved — what a runner that reports absolute
+ * paths (node's test runner resolves modules through realpath) will have used,
+ * so those paths can be made repository-relative.
+ */
+function realDir(dir) {
+    try {
+        return node_fs_1.realpathSync.native(dir);
+    }
+    catch {
+        return dir;
+    }
+}
 function mergedEnv(overlay) {
     const env = {};
     for (const [key, value] of Object.entries(process.env)) {
         if (value !== undefined)
             env[key] = value;
     }
-    return { ...env, ...overlay };
+    const merged = { ...env, ...overlay };
+    // NODE_OPTIONS is additive: the runner's reporter flags must not drop what
+    // the environment already carries (a heap size, a loader).
+    const existing = env['NODE_OPTIONS']?.trim();
+    const added = overlay['NODE_OPTIONS'];
+    if (added !== undefined && existing !== undefined && existing !== '') {
+        merged['NODE_OPTIONS'] = `${existing} ${added}`;
+    }
+    return merged;
 }
 /**
  * PATH for a run inside `workDir`: the checkout's `node_modules/.bin` first,
@@ -87145,7 +87453,7 @@ function parseReport(detected, workDir, stdout, notes) {
         (detected.family === 'go' && stdout.trim() !== '' ? stdout : undefined);
     if (raw !== undefined) {
         try {
-            return (0, index_js_4.normalize)(detected.family, raw);
+            return (0, index_js_4.normalize)(detected.family, raw, { cwd: realDir(workDir) });
         }
         catch (err) {
             const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
@@ -87167,7 +87475,7 @@ function parseReport(detected, workDir, stdout, notes) {
             if (text === undefined)
                 continue;
             try {
-                merged.push(...(0, index_js_4.normalize)(detected.family, text).tests);
+                merged.push(...(0, index_js_4.normalize)(detected.family, text, { cwd: realDir(workDir) }).tests);
                 parsed++;
             }
             catch {

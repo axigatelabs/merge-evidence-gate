@@ -42,6 +42,7 @@ import {
   type Octokit,
   type RepoRef,
 } from './action/github.js';
+import { applyVerdict, type FailOn } from './action/verdict.js';
 import { evaluate, loadPolicy, writeSafely } from './pipeline.js';
 import type { PullRequestFacts, Verdict } from './core/types.js';
 
@@ -62,7 +63,7 @@ interface Inputs {
   token: string;
   testCommand: string;
   agentsOnly: boolean | undefined;
-  failOn: 'fail' | 'needs-human';
+  failOn: FailOn;
   baseComparison: 'auto' | 'never';
   comment: boolean;
   uploadReceipt: boolean;
@@ -92,8 +93,8 @@ function optionalBoolInput(name: string): boolean | undefined {
 
 function readInputs(): Inputs {
   const failOnRaw = core.getInput('fail-on').trim().toLowerCase();
-  if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human') {
-    core.warning(`input 'fail-on': expected 'fail' or 'needs-human', got '${failOnRaw}' — using 'fail'`);
+  if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human' && failOnRaw !== 'never') {
+    core.warning(`input 'fail-on': expected 'fail', 'needs-human' or 'never', got '${failOnRaw}' — using 'fail'`);
   }
   const baseRaw = core.getInput('base-comparison').trim().toLowerCase();
   if (baseRaw !== '' && baseRaw !== 'auto' && baseRaw !== 'never') {
@@ -103,7 +104,7 @@ function readInputs(): Inputs {
     token: core.getInput('github-token'),
     testCommand: core.getInput('test-command').trim(),
     agentsOnly: optionalBoolInput('agents-only'),
-    failOn: failOnRaw === 'needs-human' ? 'needs-human' : 'fail',
+    failOn: failOnRaw === 'needs-human' || failOnRaw === 'never' ? failOnRaw : 'fail',
     baseComparison: baseRaw === 'never' ? 'never' : 'auto',
     comment: boolInput('comment', true),
     uploadReceipt: boolInput('upload-receipt', true),
@@ -221,19 +222,6 @@ function setOutputs(verdict: Verdict, discrepancies: number, receiptPath: string
   core.setOutput('receipt-path', receiptPath);
 }
 
-/** Translate the verdict into the job's exit status. */
-function applyVerdict(verdict: Verdict, failOn: Inputs['failOn'], title: string): void {
-  if (verdict === 'FAIL') {
-    core.setFailed(title);
-    return;
-  }
-  if (verdict === 'NEEDS_HUMAN') {
-    if (failOn === 'needs-human') core.setFailed(title);
-    else core.warning(`${title} — a human should look at this before merging`);
-    return;
-  }
-  core.info(title);
-}
 
 // ---------------------------------------------------------------------------
 // Orchestration

@@ -123,7 +123,7 @@ export interface ParsedCaveat {
 // Observed execution (what ACTUALLY ran)
 // ---------------------------------------------------------------------------
 
-export type RunnerFamily = 'go' | 'pytest' | 'jest' | 'vitest' | 'cargo' | 'junit' | 'make' | 'npm';
+export type RunnerFamily = 'go' | 'pytest' | 'jest' | 'vitest' | 'node-test' | 'cargo' | 'junit' | 'make' | 'npm';
 
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'focused' | 'todo';
 
@@ -195,11 +195,21 @@ export interface ObservedRun {
   claimId?: string;
 }
 
+/** Context an adapter may use while parsing; every field is optional. */
+export interface ParseOptions {
+  /** The directory the tests ran in, symlinks resolved — absolute file paths are made relative to it. */
+  cwd?: string;
+}
+
 /** A runner adapter turns a reporter's machine output into ExecutedTest[]. */
 export interface RunnerAdapter {
   family: RunnerFamily;
-  /** Parse the raw reporter output (JSON text, JUnit XML text, go -json stream). */
-  parse(raw: string): { tests: ExecutedTest[]; totals: ObservedRun['totals'] };
+  /**
+   * Parse the raw reporter output (JSON text, JUnit XML text, go -json stream).
+   * `options.cwd` lets an adapter whose reporter writes absolute paths (node's
+   * test runner) relativise them, so ids are the same on every machine.
+   */
+  parse(raw: string, options?: ParseOptions): { tests: ExecutedTest[]; totals: ObservedRun['totals'] };
 }
 
 // ---------------------------------------------------------------------------

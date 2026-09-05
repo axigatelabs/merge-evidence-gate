@@ -19,7 +19,7 @@
  * may fail a run, and a claim the gate could not verify is reported, never
  * counted against the PR.
  */
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import * as core from '@actions/core';
@@ -138,12 +138,33 @@ export function signalOf(result: CommandResult): string | undefined {
 }
 
 /** Environment for the test run: the runner's own, plus the reporter overlay. */
+/**
+ * The work dir with symlinks resolved — what a runner that reports absolute
+ * paths (node's test runner resolves modules through realpath) will have used,
+ * so those paths can be made repository-relative.
+ */
+export function realDir(dir: string): string {
+  try {
+    return realpathSync.native(dir);
+  } catch {
+    return dir;
+  }
+}
+
 export function mergedEnv(overlay: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
   }
-  return { ...env, ...overlay };
+  const merged = { ...env, ...overlay };
+  // NODE_OPTIONS is additive: the runner's reporter flags must not drop what
+  // the environment already carries (a heap size, a loader).
+  const existing = env['NODE_OPTIONS']?.trim();
+  const added = overlay['NODE_OPTIONS'];
+  if (added !== undefined && existing !== undefined && existing !== '') {
+    merged['NODE_OPTIONS'] = `${existing} ${added}`;
+  }
+  return merged;
 }
 
 /**
@@ -381,7 +402,7 @@ export function parseReport(
     (detected.family === 'go' && stdout.trim() !== '' ? stdout : undefined);
   if (raw !== undefined) {
     try {
-      return normalize(detected.family, raw);
+      return normalize(detected.family, raw, { cwd: realDir(workDir) });
     } catch (err) {
       const note = `runner: could not parse ${detected.family} output (${err instanceof Error ? err.message : String(err)})`;
       core.warning(note);
@@ -402,7 +423,7 @@ export function parseReport(
       const text = readReport(path);
       if (text === undefined) continue;
       try {
-        merged.push(...normalize(detected.family, text).tests);
+        merged.push(...normalize(detected.family, text, { cwd: realDir(workDir) }).tests);
         parsed++;
       } catch {
         // one unreadable package report must not hide the others
