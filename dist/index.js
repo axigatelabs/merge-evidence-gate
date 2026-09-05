@@ -86172,9 +86172,39 @@ function fromMakeRecipe(command, recipe, files) {
     }
     return opaque(command, 'make');
 }
+/** `pnpm run test:local` inside a script: a step that may be where the runner actually is. */
+const NESTED_RUN = /\b(?:pnpm|npm|yarn|bun)\s+run\s+([\w:.-]+)/g;
+/** The runner a script's own text names, if any — deps are not consulted here. */
+function runnerInText(text) {
+    if (text === undefined)
+        return undefined;
+    if (/\bvitest\b/.test(text))
+        return 'vitest';
+    if (/\bjest\b/.test(text))
+        return 'jest';
+    return undefined;
+}
 function fromPackageScript(script, pkg, files) {
     const pm = readPackageManager(files);
     const invocation = PM_INVOCATION[pm];
+    // A `test` script that is a chain — `pnpm supabase start && pnpm run
+    // test:local && pnpm supabase stop` — does not name the runner itself, and
+    // reporter flags appended to `pnpm test` would land on the chain's last
+    // link. Run the nested step that does name the runner, and say so.
+    if (runnerInText(script) === undefined) {
+        for (const match of script.matchAll(NESTED_RUN)) {
+            const name = match[1];
+            if (name === undefined)
+                continue;
+            const nested = runnerInText(pkg?.scripts?.[name]);
+            if (nested === undefined)
+                continue;
+            const command = `${pm} run ${name}`;
+            const separator = pm === 'npm' ? ' --' : '';
+            const detected = nested === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
+            return { ...detected, note: `the \`test\` script chains to \`${name}\`; running that step directly` };
+        }
+    }
     const node = classifyNodeRunner(script, pkg);
     if (node === 'vitest')
         return injectVitest(invocation.command, invocation.separator);
