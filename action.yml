@@ -26,6 +26,22 @@ inputs:
     description: 'When the head run fails, re-run the same command at the base commit so failures the repository already had are not counted against the PR: "auto" (default) or "never".'
     required: false
     default: 'auto'
+  evidence:
+    description: 'Where the evidence about the run comes from. "run" (default): re-run the tests on this runner. "report": read the report your own test step already wrote (see report-path) and run nothing. "none": no test evidence — the diff-based checks alone.'
+    required: false
+    default: 'run'
+  report-path:
+    description: 'With evidence: report — the test report(s) your test step wrote, relative to working-directory; several separated by newlines or commas. A missing, empty or unreadable report is no evidence, never a pass.'
+    required: false
+    default: ''
+  report-format:
+    description: 'With evidence: report — "auto" (default) recognises go -json, jest/vitest JSON and JUnit XML including node''s junit reporter; or one of go, pytest, jest, vitest, node-test, junit.'
+    required: false
+    default: 'auto'
+  report-command:
+    description: 'With evidence: report — the exact command your test step ran, recorded on the receipt and used to map claimed commands. When omitted the gate presumes the repository''s own test command and says so.'
+    required: false
+    default: ''
   comment:
     description: 'Post/update the sticky receipt comment on the PR.'
     required: false

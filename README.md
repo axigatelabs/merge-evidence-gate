@@ -198,6 +198,41 @@ First hit wins (`detectTestCommand` in `src/core/runners/detect.ts`):
 If none of those exist, the gate abstains: verdict `NEUTRAL`, no failure. It does
 not guess.
 
+## Evidence: re-run, read your own report, or diff only
+
+The gate has three ways to learn what ran, chosen with the `evidence` input:
+
+| `evidence` | What happens | Cost |
+|---|---|---|
+| `run` (default) | The gate runs the repository's test command on this runner with a machine-readable reporter injected. The strongest receipt: the run is the gate's own. | your suite's runtime |
+| `report` | The gate runs nothing. It reads the report your own test step already wrote (`report-path`), checks the claims against it, and runs the diff-based checks. The receipt records the report's sha256 and says nothing was re-run. | seconds |
+| `none` | No test evidence at all. Command and count claims are unverifiable; the diff-based checks — deleted or skipped tests, edited CI, unmentioned dependencies, a ticked "tests added" box with no test file — still run. | seconds |
+
+`report` is for a suite you already run in CI and cannot afford to run twice.
+Your test step writes a report the gate reads — jest/vitest JSON, go `-json`,
+JUnit XML from pytest, nextest or node's junit reporter; `report-format: auto`
+recognises them — and the gate runs as a later step of the same job:
+
+```yaml
+      - run: pnpm vitest run --reporter=json --outputFile=.reports/vitest.json
+      - uses: axigatelabs/merge-evidence-gate@v1
+        if: always()                        # read the report even when the suite failed
+        with:
+          evidence: report
+          report-path: .reports/vitest.json
+          report-command: pnpm vitest run   # what the step above ran; recorded on the receipt
+```
+
+What `report` cannot do, and says on the receipt: the exit code is inferred
+from the report's failures; a failing suite is not compared against the base
+commit, so every failure counts against the head; and a report the gate did not
+produce is one it has to trust — the receipt binds it by its sha256, not by
+having watched it being written.
+
+The one rule that makes `report` safe: a report that is missing, empty,
+unreadable, or lists no tests is **no evidence, never a pass**. A job whose test
+step was skipped by an `if:` still finishes green; the gate does not.
+
 ## Configuration
 
 ### Action inputs
@@ -210,6 +245,10 @@ All optional. Defaults are from [`action.yml`](action.yml).
 | `test-command` | *(empty)* | Explicit test command. Overrides every form of detection. |
 | `agents-only` | `true` | Only run when the pull request looks agent-authored. `false` gates every pull request. |
 | `fail-on` | `fail` | Verdict at or above which the job fails. `fail` fails only on `FAIL`; `needs-human` also fails on `NEEDS_HUMAN`; `never` keeps the job green whatever the verdict — the comment, job summary, artifact and outputs still carry it — for running the gate advisory-only before making it a required check. |
+| `evidence` | `run` | `run` re-runs the tests here; `report` reads the report your own test step wrote and runs nothing; `none` keeps only the diff-based checks. See [Evidence](#evidence-re-run-read-your-own-report-or-diff-only). |
+| `report-path` | *(empty)* | With `evidence: report`: the report file(s), relative to `working-directory`; several separated by newlines or commas. Missing, empty or unreadable is no evidence, never a pass. |
+| `report-format` | `auto` | With `evidence: report`: `auto` recognises go `-json`, jest/vitest JSON and JUnit XML (pytest, nextest, node's junit reporter); or name one of `go`, `pytest`, `jest`, `vitest`, `node-test`, `junit`. |
+| `report-command` | *(empty)* | With `evidence: report`: the exact command your test step ran, recorded on the receipt and used to map claimed commands. Omitted: the repository's own test command is presumed, and the receipt says so. |
 | `base-comparison` | `auto` | When the head run fails, re-run the same command at the base commit so failures the repository already had are not counted against the pull request. `never` skips that run. |
 | `comment` | `true` | Post and update the sticky receipt comment. |
 | `upload-receipt` | `true` | Upload `receipt.json` as a workflow artifact. |
@@ -305,6 +344,10 @@ node dist/cli/index.js \
 | `--markdown <path>` | Also write the rendered receipt as markdown. |
 | `--install-only` | Check out the head, install dependencies, and stop — the "network is still on" step before an offline run. |
 | `--skip-install` | Do not install; the checkout already has its dependencies. |
+| `--evidence <run\|report\|none>` | `report` reads the report(s) at `--report-path` and runs nothing; `none` runs nothing and keeps the diff-based checks. |
+| `--report-path <path>` | With `--evidence report`: a report file, relative to `--work`; repeat the flag for several. |
+| `--report-format <fmt>` | `auto` (default), `go`, `pytest`, `jest`, `vitest`, `node-test`, `junit`. |
+| `--report-command <cmd>` | With `--evidence report`: the command that produced the report, recorded on the receipt. |
 
 Two outputs, always in the same place: `receipt.json` at `--out`, and a
 `<out>.meta.json` sidecar carrying `verdict`, `skipped`, `agent`, `unverifiable`,
@@ -403,8 +446,12 @@ One job per pull request. The gate itself is a single Node action; essentially
 all of the wall-clock time is your own test suite, which for most repositories
 means about five minutes on a `ubuntu-latest` runner.
 
-Two ways to spend less:
+Three ways to spend less:
 
+- If your workflow already runs the suite, set `evidence: report` and point
+  `report-path` at that run's report: the gate step then costs seconds, and
+  nothing is run twice. See
+  [Evidence](#evidence-re-run-read-your-own-report-or-diff-only).
 - Leave `agents-only: true` (the default). Human pull requests start the job and
   it exits immediately with `NEUTRAL`.
 - Skip the job entirely with an `if:` on the agent signals, so no runner starts
@@ -413,8 +460,8 @@ Two ways to spend less:
   Be aware that a skipped required check can block a merge under some rulesets;
   `agents-only` is the safer default of the two.
 
-There is no second run: the gate reuses the same job that ran your suite, rather
-than adding one.
+With the default `evidence: run`, the gate's job is a second run of your suite
+when your workflow already has one; `evidence: report` is how you avoid that.
 
 ## FAQ
 
@@ -452,7 +499,7 @@ nothing is a pull request a reviewer knows to read carefully.
 
 ## Status
 
-Version 0.9.0, on `main`, listed on the
+Version 0.10.0, on `main`, listed on the
 [GitHub Marketplace](https://github.com/marketplace/actions/merge-evidence-gate).
 The `v1` tag moves with each release. The Action runs with a token that can
 write pull-request comments, so if you want a fixed version, pin a commit SHA
@@ -461,7 +508,8 @@ write pull-request comments, so if you want a fixed version, pin a commit SHA
 What is in the box: agent detection, claim extraction, test-command detection
 and reporter injection, runner adapters for Go, pytest, Jest, Vitest, node's
 built-in test runner, `cargo test` and cargo-nextest (plus `make`, npm/pnpm/yarn, uv, poetry and similar
-wrappers around them), diff analysis, base-commit comparison, the reconcile
+wrappers around them), the report-reading and diff-only evidence modes, diff
+analysis, base-commit comparison, the reconcile
 step, and the receipt and comment renderers (`src/core/`). Any other test
 command still runs, but yields no per-test evidence: the receipt says so and
 the count and test-set checks abstain rather than guess. The two front-ends are

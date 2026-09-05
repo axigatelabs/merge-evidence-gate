@@ -174,6 +174,39 @@ describe('cli', () => {
     }
   });
 
+  it('--evidence none skips the run and rests on the diff alone', async () => {
+    const out = join(outDir, 'none', 'receipt.json');
+    const run = await runCli([
+      '--work', repo.dir,
+      '--repo', 'example/demo',
+      '--pr', '42',
+      '--head', repo.headSha,
+      '--base', repo.baseSha,
+      '--author', 'demo-agent',
+      '--head-ref', 'claude/add-div',
+      '--base-ref', 'main',
+      '--body-file', join(repo.dir, 'PR_BODY.md'),
+      '--out', out,
+      '--evidence', 'none',
+    ]);
+    expect(run.code).toBe(0);
+    const receipt = JSON.parse(readFileSync(out, 'utf8')) as { observed: { source?: string; totals: { run: number } } };
+    expect(receipt.observed.source).toBe('none');
+    expect(receipt.observed.totals.run).toBe(0);
+    expect(run.stdout).toContain('tests=0/0');
+  });
+
+  it('--evidence report without a --report-path is a usage error, exit 2', async () => {
+    const run = await runCli([
+      '--work', repo.dir,
+      '--head', repo.headSha,
+      '--out', join(outDir, 'bad', 'receipt.json'),
+      '--evidence', 'report',
+    ]);
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('--report-path');
+  });
+
   it('writes a receipt, a sidecar and a summary line, and still exits 0 on FAIL', async () => {
     const out = join(outDir, 'fail', 'receipt.json');
     const markdown = join(outDir, 'fail', 'receipt.md');

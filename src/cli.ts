@@ -22,7 +22,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { evaluate, installOnly, loadPolicy } from './pipeline.js';
+import { isReportFormat, REPORT_FORMATS } from './core/runners/index.js';
+import { evaluate, installOnly, loadPolicy, type EvidenceOptions } from './pipeline.js';
 import type { PullRequestFacts } from './core/types.js';
 
 const USAGE = `merge-evidence — re-run a pull request's tests and reconcile them with what it claimed
@@ -61,6 +62,16 @@ Behaviour:
   --base-comparison <mode> auto (default): when the head run fails, run the same
                            command at the base commit and only count failures
                            this PR introduced; never: skip that run.
+  --evidence <mode>        run (default): run the tests here. report: read the
+                           report the repository's own test step wrote (see
+                           --report-path) and run nothing. none: no test
+                           evidence — the diff-based checks alone.
+  --report-path <path>     With --evidence report: a report file, relative to
+                           --work; repeat the flag for several.
+  --report-format <fmt>    auto (default), go, pytest, jest, vitest, node-test
+                           or junit.
+  --report-command <cmd>   With --evidence report: the command that produced the
+                           report, recorded on the receipt.
   --help                   Print this.
 `;
 
@@ -142,6 +153,10 @@ export async function main(argv: string[]): Promise<number> {
         'skip-install': { type: 'boolean' },
         'prefer-claimed-command': { type: 'boolean' },
         'base-comparison': { type: 'string' },
+        evidence: { type: 'string' },
+        'report-path': { type: 'string', multiple: true },
+        'report-format': { type: 'string' },
+        'report-command': { type: 'string' },
         help: { type: 'boolean' },
       },
     });
@@ -209,6 +224,28 @@ export async function main(argv: string[]): Promise<number> {
       throw new UsageError(`--base-comparison: expected 'auto' or 'never', got '${baseRaw}'`);
     }
     const baseComparison = baseRaw as 'auto' | 'never' | undefined;
+    let evidence: EvidenceOptions | undefined;
+    if (values.evidence !== undefined) {
+      const mode = values.evidence.trim().toLowerCase();
+      if (mode === 'run') evidence = { kind: 'run' };
+      else if (mode === 'none') evidence = { kind: 'none' };
+      else if (mode === 'report') {
+        const paths = values['report-path'] ?? [];
+        if (paths.length === 0) throw new UsageError('--evidence report needs at least one --report-path');
+        const format = values['report-format']?.trim().toLowerCase();
+        if (format !== undefined && !isReportFormat(format)) {
+          throw new UsageError(`--report-format: expected one of ${REPORT_FORMATS.join(', ')}, got '${format}'`);
+        }
+        const command = values['report-command']?.trim();
+        evidence = {
+          kind: 'report',
+          paths,
+          ...(format === undefined || format === 'auto' ? {} : { format }),
+          ...(command === undefined || command === '' ? {} : { command }),
+        };
+      } else throw new UsageError(`--evidence: expected run, report or none, got '${values.evidence}'`);
+    }
+
     const result = await evaluate({
       workDir,
       pr,
@@ -218,6 +255,7 @@ export async function main(argv: string[]): Promise<number> {
       ...(values['skip-install'] === true ? { skipInstall: true } : {}),
       ...(values['prefer-claimed-command'] === true ? { preferClaimedCommand: true } : {}),
       ...(baseComparison === undefined ? {} : { baseComparison }),
+      ...(evidence === undefined ? {} : { evidence }),
     });
 
     if (result.receiptJson !== undefined) writeFile(out, result.receiptJson);

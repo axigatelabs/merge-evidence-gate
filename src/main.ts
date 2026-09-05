@@ -43,7 +43,8 @@ import {
   type RepoRef,
 } from './action/github.js';
 import { applyVerdict, type FailOn } from './action/verdict.js';
-import { evaluate, loadPolicy, writeSafely } from './pipeline.js';
+import { isReportFormat, REPORT_FORMATS, type ReportFormat } from './core/runners/index.js';
+import { evaluate, loadPolicy, writeSafely, type EvidenceOptions } from './pipeline.js';
 import type { PullRequestFacts, Verdict } from './core/types.js';
 
 /** Events that carry a pull request worth gating. */
@@ -65,6 +66,7 @@ interface Inputs {
   agentsOnly: boolean | undefined;
   failOn: FailOn;
   baseComparison: 'auto' | 'never';
+  evidence: EvidenceOptions | undefined;
   comment: boolean;
   uploadReceipt: boolean;
   policyFile: string;
@@ -91,6 +93,40 @@ function optionalBoolInput(name: string): boolean | undefined {
   return boolInput(name, true);
 }
 
+/**
+ * `evidence`, `report-path`, `report-format`, `report-command`. Returns
+ * undefined for the default (`run`), so the pipeline's own default applies.
+ * A `report` mode with no path is a misconfiguration, thrown so the job fails
+ * whatever `fail-on` says: that is not a verdict.
+ */
+function readEvidenceInputs(): EvidenceOptions | undefined {
+  const mode = core.getInput('evidence').trim().toLowerCase();
+  if (mode === '' || mode === 'run') return undefined;
+  if (mode === 'none') return { kind: 'none' };
+  if (mode !== 'report') {
+    core.warning(`input 'evidence': expected 'run', 'report' or 'none', got '${mode}' — using 'run'`);
+    return undefined;
+  }
+  const paths = core
+    .getInput('report-path')
+    .split(/[\n,]/)
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
+  if (paths.length === 0) {
+    throw new Error("input 'evidence' is 'report' but 'report-path' is empty — name the report your test step wrote");
+  }
+  const formatRaw = core.getInput('report-format').trim().toLowerCase();
+  let format: ReportFormat | undefined;
+  if (formatRaw === '' || formatRaw === 'auto') format = undefined;
+  else if (isReportFormat(formatRaw)) format = formatRaw;
+  else {
+    core.warning(`input 'report-format': expected one of ${REPORT_FORMATS.join(', ')}, got '${formatRaw}' — using 'auto'`);
+    format = undefined;
+  }
+  const command = core.getInput('report-command').trim();
+  return { kind: 'report', paths, ...(format === undefined ? {} : { format }), ...(command === '' ? {} : { command }) };
+}
+
 function readInputs(): Inputs {
   const failOnRaw = core.getInput('fail-on').trim().toLowerCase();
   if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human' && failOnRaw !== 'never') {
@@ -101,6 +137,7 @@ function readInputs(): Inputs {
     core.warning(`input 'base-comparison': expected 'auto' or 'never', got '${baseRaw}' — using 'auto'`);
   }
   return {
+    evidence: readEvidenceInputs(),
     token: core.getInput('github-token'),
     testCommand: core.getInput('test-command').trim(),
     agentsOnly: optionalBoolInput('agents-only'),
@@ -279,6 +316,7 @@ export async function run(): Promise<void> {
     testCommand: inputs.testCommand,
     ...(inputs.agentsOnly === undefined ? {} : { agentsOnly: inputs.agentsOnly }),
     baseComparison: inputs.baseComparison,
+    ...(inputs.evidence === undefined ? {} : { evidence: inputs.evidence }),
   });
 
   if (result.skipped === 'not-agent') {

@@ -267,7 +267,7 @@ function checkC1(
       check: 'C1',
       severity: resolveSeverity('C1', policy),
       claim: claim.id,
-      summary: `Claimed \`${parsed.raw}\` passed; the re-run exited ${observed.exitCode}`,
+      summary: `Claimed \`${parsed.raw}\` passed; ${observed.source === 'report' ? `the report shows ${observed.totals.failed} failed` : `the re-run exited ${observed.exitCode}`}`,
       evidence: [
         `claimed command: ${parsed.raw}`,
         `observed command: ${observed.command}`,

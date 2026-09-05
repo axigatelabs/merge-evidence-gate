@@ -64,7 +64,7 @@ function isoSeconds(date: Date): string {
 export function buildReceipt(input: BuildReceiptInput): Receipt {
   const { pr, agent, claims, observed, diff, discrepancies, verdict, policy } = input;
   const bodyHash = sha256(pr.body);
-  const noTestCommand = observed.noTestCommand === true;
+  const noTestCommand = observed.noTestCommand === true && observed.source !== 'none';
 
   return {
     schema: 'merge-evidence/receipt/v1',
@@ -86,6 +86,8 @@ export function buildReceipt(input: BuildReceiptInput): Receipt {
       tests_digest: testsDigest(observed.tests),
       duration_s: Math.round(observed.durationMs / 1000),
       ...(observed.claimId === undefined ? {} : { claim: observed.claimId }),
+      ...(observed.source === undefined || observed.source === 'run' ? {} : { source: observed.source }),
+      ...(observed.reportDigest === undefined ? {} : { report_sha256: observed.reportDigest }),
       ...(noTestCommand ? { no_test_command: true } : {}),
       ...(hasNoEvidence(observed) ? { no_evidence: true } : {}),
       ...baselineProjection(observed),
