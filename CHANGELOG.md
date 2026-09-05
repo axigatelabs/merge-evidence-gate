@@ -9,7 +9,21 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.6.1 — unreleased
+## 0.7.0 — unreleased
+
+### Changed
+
+- A `test` script that is npm's placeholder (`echo "Error: no test specified"
+  && exit 1`), or names no runner and chains to none, falls through to a
+  sibling script that does — `test:unit`, `test:ci`, `test:jest`,
+  `test:vitest`, … in that order — and the receipt says so. Infisical's
+  backend keeps its suite under `test:unit`; every one of its pull requests in
+  the study had come back with no evidence.
+- The frozen uv install takes every extra (`uv sync --locked --all-extras`):
+  tests routinely import optional dependencies — litellm's conftest imports
+  `prisma` from the proxy extra — and the lockfile pins them all.
+
+## 0.6.1 — 2026-09-05
 
 ### Changed
 

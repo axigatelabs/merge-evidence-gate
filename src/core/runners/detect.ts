@@ -575,6 +575,16 @@ function fromMakeRecipe(
 /** `pnpm run test:local` inside a script: a step that may be where the runner actually is. */
 const NESTED_RUN = /\b(?:pnpm|npm|yarn|bun)\s+run\s+([\w:.-]+)/g;
 
+/** npm's scaffold placeholder: a `test` script that exists but tests nothing. */
+const PLACEHOLDER_TEST_SCRIPT = /no test specified/i;
+
+/**
+ * Sibling scripts a repository keeps its real unit suite under when `test` is
+ * the placeholder or names no runner — Infisical's backend: `test` echoes
+ * "no test specified", `test:unit` runs vitest. In order of preference.
+ */
+const SIBLING_TEST_SCRIPTS: readonly string[] = ['test:unit', 'test:ci', 'test:jest', 'test:vitest', 'unit', 'test:unit:ci', 'jest', 'vitest'];
+
 /** The runner a script's own text names, if any — deps are not consulted here. */
 function runnerInText(text: string | undefined): 'jest' | 'vitest' | undefined {
   if (text === undefined) return undefined;
@@ -596,15 +606,30 @@ function fromPackageScript(
   // reporter flags appended to `pnpm test` would land on the chain's last
   // link. Run the nested step that does name the runner, and say so.
   if (runnerInText(script) === undefined) {
+    const separator = pm === 'npm' ? ' --' : '';
     for (const match of script.matchAll(NESTED_RUN)) {
       const name = match[1];
       if (name === undefined) continue;
       const nested = runnerInText(pkg?.scripts?.[name]);
       if (nested === undefined) continue;
       const command = `${pm} run ${name}`;
-      const separator = pm === 'npm' ? ' --' : '';
       const detected = nested === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
       return { ...detected, note: `the \`test\` script chains to \`${name}\`; running that step directly` };
+    }
+    // `test` is npm's placeholder, or runs no runner and chains to none: the
+    // suite lives under a sibling script.
+    const placeholder = PLACEHOLDER_TEST_SCRIPT.test(script);
+    for (const name of SIBLING_TEST_SCRIPTS) {
+      const sibling = runnerInText(pkg?.scripts?.[name]);
+      if (sibling === undefined) continue;
+      const command = `${pm} run ${name}`;
+      const detected = sibling === 'vitest' ? injectVitest(command, separator) : injectJest(command, separator);
+      return {
+        ...detected,
+        note: placeholder
+          ? `the \`test\` script is npm's placeholder; running \`${name}\` instead`
+          : `the \`test\` script names no runner; running \`${name}\` instead`,
+      };
     }
   }
 
