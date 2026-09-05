@@ -9,7 +9,7 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-09-05
 
 Findings from the first real batch of the Claim–Reality Gap study (40 public
 Devin pull requests on mastra-ai/mastra re-run offline) and an adversarial
@@ -108,10 +108,10 @@ review of the fix.
   comparison is planned so that failures also present at the base are reported
   as environment, not as a contradiction.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-09-04
 
-First development release. Not published to the Marketplace; the Action entry
-point is a stub, so nothing here is usable as a gate yet.
+First release, tagged `v0.1.0` / `v1` on a private repository (not on the
+Marketplace). Its published bundle crashed on load — see 0.2.0, "Fixed".
 
 ### Added
 
