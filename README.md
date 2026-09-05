@@ -442,16 +442,24 @@ nothing is a pull request a reviewer knows to read carefully.
 
 ## Status
 
-Under active development on the `build` branch. Not yet published to the
-Marketplace.
+Version 0.8.1, on `main`, listed on the
+[GitHub Marketplace](https://github.com/marketplace/actions/merge-evidence-gate).
+The `v1` tag moves with each release. The Action runs with a token that can
+write pull-request comments, so if you want a fixed version, pin a commit SHA
+(`uses: axigatelabs/merge-evidence-gate@<sha>`) and move it deliberately.
 
-Implemented today: agent detection, claim extraction, test-command detection and
-reporter injection, the runner adapters and normalization, the tests digest, diff
-analysis, the reconcile step, the receipt and comment renderers (`src/core/`),
-the shared pipeline in `src/pipeline.ts` — the clean re-run, the diff and the
-reconciliation — plus its two front-ends: the Action wiring in `src/main.ts`
-(inputs, the sticky comment, the `receipt.json` artifact, the job summary and the
-outputs) and the offline CLI in `src/cli.ts`.
+What is in the box: agent detection, claim extraction, test-command detection
+and reporter injection, runner adapters for Go, pytest, Jest, Vitest, `cargo
+test` and cargo-nextest (plus `make`, npm/pnpm/yarn, uv, poetry and similar
+wrappers around them), diff analysis, base-commit comparison, the reconcile
+step, and the receipt and comment renderers (`src/core/`). Any other test
+command still runs, but yields no per-test evidence: the receipt says so and
+the count and test-set checks abstain rather than guess. The two front-ends are
+the Action wiring in `src/main.ts` (inputs, the sticky comment, the
+`receipt.json` artifact, the job summary and the outputs) and the offline CLI
+in `src/cli.ts`.
+
+How it did on 140 real agent pull requests: [study/RESULTS.md](study/RESULTS.md).
 
 ## Contributing
 
