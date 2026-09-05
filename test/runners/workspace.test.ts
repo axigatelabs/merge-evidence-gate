@@ -26,8 +26,8 @@ describe('detectWorkspaceCommand', () => {
     });
     expect(detected?.family).toBe('vitest');
     expect(detected?.command).toBe(
-      "f=0; (cd 'apps/studio' && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; " +
-        "(cd 'packages/ui' && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; " +
+      "f=0; (cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; " +
+        "(cd 'packages/ui' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && pnpm test --reporter=json --outputFile=.merge-evidence/vitest-results.json) || f=1; " +
         'exit "$f"',
     );
     expect(detected?.reportPath).toBe('.merge-evidence/vitest-results.json');
@@ -40,7 +40,7 @@ describe('detectWorkspaceCommand', () => {
       packages: [pkg('packages/a', 'jest', { jest: '^29' })],
     });
     expect(detected?.family).toBe('jest');
-    expect(detected?.command).toContain("(cd 'packages/a' && mkdir -p .merge-evidence && npm test -- --json --outputFile=.merge-evidence/jest-results.json");
+    expect(detected?.command).toContain("(cd 'packages/a' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && npm test -- --json --outputFile=.merge-evidence/jest-results.json");
   });
 
   it('skips packages without a test script and returns null when none has one', () => {
@@ -78,7 +78,7 @@ describe('detectWorkspaceCommand', () => {
       packages: [pkg('apps/studio', 'vitest run', { vitest: '^3' })],
     });
     expect(detected?.family).toBe('vitest');
-    expect(detected?.command).toContain("(cd 'apps/studio' && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json)");
+    expect(detected?.command).toContain("(cd 'apps/studio' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json --outputFile=.merge-evidence/vitest-results.json)");
     expect(detected?.note).toContain('running the claimed command in 1 workspace package(s) this PR touches: apps/studio');
   });
 

@@ -160,6 +160,22 @@ describe('receipt and comment carry the comparison', () => {
   });
 });
 
+describe('C1 mapping through a workspace composite command', () => {
+  it('maps a claimed package script to the package-manager call inside the composite', () => {
+    const composite: ObservedRun = observed({
+      runner: 'npm',
+      command: `f=0; (cd 'e2e/studio' && export PATH="$PWD/node_modules/.bin:$PATH" && mkdir -p .merge-evidence && pnpm test:studio) || f=1; exit "$f"`,
+      exitCode: 1,
+      tests: [],
+      totals: ZERO,
+    });
+    const result = run(composite, [commandClaim('c1', 'pnpm test:studio', { runner: 'npm' })]);
+    expect(result.discrepancies.map((d) => d.check)).toEqual(['C1']);
+    const other = run(composite, [commandClaim('c1', 'pnpm test', { runner: 'npm' })]);
+    expect(other.unverifiable).toEqual(['c1']);
+  });
+});
+
 describe('policy: base-comparison', () => {
   it('parses auto and never, ignores anything else', () => {
     expect(parsePolicyYaml('base-comparison: never\n').baseComparison).toBe('never');

@@ -147,6 +147,20 @@ export function mergedEnv(overlay: Record<string, string>): Record<string, strin
 }
 
 /**
+ * PATH for a run inside `workDir`: the checkout's `node_modules/.bin` first,
+ * when it exists. A claimed bare `vitest` or `jest` is how developers write
+ * the command; it resolves only because npm, pnpm or npx put that directory
+ * on PATH, and the gate runs commands through bash directly.
+ */
+export function pathWithBin(workDir: string, base: string | undefined = process.env['PATH']): string {
+  const bin = join(workDir, 'node_modules', '.bin');
+  const current = base ?? '';
+  if (!existsSync(bin)) return current;
+  const parts = current.split(':').filter((p) => p !== '');
+  return [bin, ...parts.filter((p) => p !== bin)].join(':');
+}
+
+/**
  * Run `commandLine` and capture both streams. Never rejects: a command that
  * cannot even be spawned comes back as code 127 with the reason on stderr, so
  * every caller handles one shape.
@@ -481,7 +495,7 @@ export async function runTests(
   notes: string[],
   options: { skipInstall?: boolean } = {},
 ): Promise<ObservedRun> {
-  const env = mergedEnv(detected.env);
+  const env = mergedEnv({ ...detected.env, PATH: pathWithBin(workDir) });
   mkdirSync(join(workDir, REPORT_DIR), { recursive: true });
 
   // The offline CLI can be handed a container whose dependencies are already in
@@ -886,7 +900,7 @@ export async function runBaseline(
     return giveUp(`could not check out base ${short}`);
   }
 
-  const env = mergedEnv(detected.env);
+  const env = mergedEnv({ ...detected.env, PATH: pathWithBin(workDir) });
   const baseFiles = readManifests(workDir);
   const depsChanged = manifestsDiffer(headFiles, baseFiles);
   if (depsChanged && options.skipInstall === true) {

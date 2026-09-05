@@ -83137,6 +83137,21 @@ const COMMAND_PREFIXES = [
 ];
 /** Any repo-local test script, e.g. `scripts/test.sh`, `./scripts/test-e2e.sh`. */
 const TEST_SCRIPT = /^(?:\.\/)?scripts\/test[^\s]*\.sh/;
+/**
+ * What may stand in front of a test command without changing what it is:
+ * `VAR=value` assignments and the wrappers that run a tool from a project
+ * environment — `uv run pytest …`, `poetry run pytest …`, `npx vitest …`,
+ * `pnpm exec jest …`, `yarn vitest …`, `bunx vitest …`. The wrapper stays in
+ * the claim's `raw` text (that is what gets re-run); only the match starts
+ * after it.
+ */
+const COMMAND_WRAPPERS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*(?:(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run\s+(?:--no-sync\s+|--frozen\s+)*|npx\s+(?:--no-install\s+|--yes\s+|-y\s+)*|pnpm\s+(?:exec|dlx)\s+|yarn\s+(?:exec\s+)?|bunx\s+|bun\s+x\s+)?/;
+/**
+ * `<your_test_file>`, `<path>`: a template placeholder. A command carrying one
+ * is the repository's PR template showing how to test, not a statement that
+ * the author ran anything.
+ */
+const PLACEHOLDER = /<[^<>\s]+>/;
 /** Flags whose value is a test-name filter: `-run X`, `-k X`, `-t X`, `--grep X`. */
 const NAME_FILTER_FLAGS = new Set(['-run', '--run', '-k', '-t', '--grep']);
 /** Flags whose value selects a package/path: `cargo test -p my-crate`. */
@@ -83150,15 +83165,24 @@ const SOURCE_FILE = /\.(?:py|ts|tsx|js|jsx|mjs|cjs|go|rs|java|kt|rb|php|cs|swift
  * "bun run test:unit", but neither matches "go testdata".
  */
 function matchCommandPrefix(raw) {
-    for (const [prefix, runner] of COMMAND_PREFIXES) {
-        if (!raw.startsWith(prefix))
-            continue;
-        const next = raw.charAt(prefix.length);
-        if (next === '' || !/[A-Za-z0-9_-]/.test(next))
-            return { prefix, runner };
+    if (PLACEHOLDER.test(raw))
+        return undefined;
+    // First as written (`yarn test` is a package script, not `yarn` wrapping
+    // `test`); then with any env assignments and runner wrapper stepped over.
+    for (const offset of [0, COMMAND_WRAPPERS.exec(raw)?.[0].length ?? 0]) {
+        const core = raw.slice(offset);
+        for (const [prefix, runner] of COMMAND_PREFIXES) {
+            if (!core.startsWith(prefix))
+                continue;
+            const next = core.charAt(prefix.length);
+            if (next === '' || !/[A-Za-z0-9_-]/.test(next))
+                return { prefix, runner, offset };
+        }
+        const script = TEST_SCRIPT.exec(core);
+        if (script)
+            return { prefix: script[0], runner: 'unknown', offset };
     }
-    const script = TEST_SCRIPT.exec(raw);
-    return script ? { prefix: script[0], runner: 'unknown' } : undefined;
+    return undefined;
 }
 /**
  * One command argument. A run of non-space characters, except that a quoted
@@ -83180,10 +83204,10 @@ function looksLikePath(token) {
     return SOURCE_FILE.test(token);
 }
 /** Split the arguments after the recognised opening into paths and name filters. */
-function parseCommand(raw, prefix, runner) {
+function parseCommand(raw, prefix, runner, offset = 0) {
     const paths = [];
     const nameFilters = [];
-    const tokens = tokenize(raw.slice(prefix.length));
+    const tokens = tokenize(raw.slice(offset + prefix.length));
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i];
         if (token === undefined)
@@ -83354,7 +83378,7 @@ function collectFromLine(line, section) {
         const at = span.index;
         const opening = matchCommandPrefix(raw);
         if (opening) {
-            const parsed = parseCommand(raw, opening.prefix, opening.runner);
+            const parsed = parseCommand(raw, opening.prefix, opening.runner, opening.offset);
             found.push({ at, claim: withSection({ kind: 'command', text: `\`${raw}\``, parsed }) });
         }
         else if (isTestName(raw)) {
@@ -84579,9 +84603,16 @@ function selectorMatches(selector, testIds) {
 }
 /** Runner families a package script resolves to: `pnpm test` → vitest, jest, or an opaque script. */
 const NODE_SCRIPT_RUNNERS = new Set(['jest', 'vitest', 'npm']);
-/** The first two words of an invocation; `npm run test` and `npm test` are the same one. */
+/**
+ * The package-manager invocation a command makes, reduced to its first two
+ * words: `npm run test -- --json` and `npm test` are the same one. The observed
+ * command may be a workspace composite (`f=0; (cd 'pkg' && pnpm test …) || f=1;
+ * …`); the invocation is the first package-manager call inside it.
+ */
 function scriptInvocation(command) {
-    return command.trim().replace(/^npm\s+run\s+/, 'npm ').split(/\s+/).slice(0, 2).join(' ');
+    const call = /(?:^|[\s(;&|])((?:npm|pnpm|yarn|bun)\s+(?:run\s+)?[^\s;&|)]+)/.exec(command.trim());
+    const invocation = (call?.[1] ?? command.trim()).replace(/^(npm|pnpm|yarn|bun)\s+run\s+/, '$1 ');
+    return invocation.split(/\s+/).slice(0, 2).join(' ');
 }
 /** True when the observed run plausibly IS the run the claim describes. */
 function isMappable(parsed, observed) {
@@ -85150,10 +85181,15 @@ function claimLines(receipt, unverifiable) {
     const totals = receipt.observed.totals;
     const lines = [];
     const rendered = new Set();
+    /** A body that names the same command three times gets one line, not three. */
+    const commandsShown = new Set();
     for (const claim of receipt.claims) {
         const command = commandOf(claim);
         if (command !== undefined) {
             rendered.add(claim.id);
+            if (commandsShown.has(command.raw))
+                continue;
+            commandsShown.add(command.raw);
             const label = `\`${command.raw}\``;
             const baseline = receipt.observed.baseline;
             const failure = receipt.discrepancies.find((d) => d.check === 'C1' && d.claim === claim.id);
@@ -86036,9 +86072,12 @@ function detectWorkspaceCommand(input) {
     const max = input.maxPackages ?? exports.MAX_WORKSPACE_PACKAGES;
     const chosen = sameFamily.slice(0, max);
     const beyondCap = sameFamily.slice(max);
+    // Inside the package, its own `node_modules/.bin` (and the root's) go on
+    // PATH: a claimed bare `vitest` is how developers write it, and it only
+    // resolves that way when a package manager or npx would have put it there.
     const command = [
         'f=0',
-        ...chosen.map((part) => `(cd ${shellQuote(part.dir)} && mkdir -p ${exports.REPORT_DIR} && ${part.detected.command}) || f=1`),
+        ...chosen.map((part) => `(cd ${shellQuote(part.dir)} && export PATH="$PWD/node_modules/.bin:$PATH" && mkdir -p ${exports.REPORT_DIR} && ${part.detected.command}) || f=1`),
         'exit "$f"',
     ].join('; ');
     const env = Object.assign({}, ...chosen.map((part) => part.detected.env));
@@ -86589,6 +86628,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.EMPTY_TOTALS = exports.RUN_LOG = void 0;
 exports.signalOf = signalOf;
 exports.mergedEnv = mergedEnv;
+exports.pathWithBin = pathWithBin;
 exports.execCapture = execCapture;
 exports.git = git;
 exports.shell = shell;
@@ -86704,6 +86744,20 @@ function mergedEnv(overlay) {
             env[key] = value;
     }
     return { ...env, ...overlay };
+}
+/**
+ * PATH for a run inside `workDir`: the checkout's `node_modules/.bin` first,
+ * when it exists. A claimed bare `vitest` or `jest` is how developers write
+ * the command; it resolves only because npm, pnpm or npx put that directory
+ * on PATH, and the gate runs commands through bash directly.
+ */
+function pathWithBin(workDir, base = process.env['PATH']) {
+    const bin = (0, node_path_1.join)(workDir, 'node_modules', '.bin');
+    const current = base ?? '';
+    if (!(0, node_fs_1.existsSync)(bin))
+        return current;
+    const parts = current.split(':').filter((p) => p !== '');
+    return [bin, ...parts.filter((p) => p !== bin)].join(':');
 }
 /**
  * Run `commandLine` and capture both streams. Never rejects: a command that
@@ -87010,7 +87064,7 @@ function findNestedReports(workDir, reportPath, maxDepth = 6) {
  * machine-readable reporter, and record exactly what ran.
  */
 async function runTests(detected, workDir, files, notes, options = {}) {
-    const env = mergedEnv(detected.env);
+    const env = mergedEnv({ ...detected.env, PATH: pathWithBin(workDir) });
     (0, node_fs_1.mkdirSync)((0, node_path_1.join)(workDir, index_js_4.REPORT_DIR), { recursive: true });
     // The offline CLI can be handed a container whose dependencies are already in
     // place (installed while the network was still up); re-running the install
@@ -87322,7 +87376,7 @@ async function runBaseline(detected, workDir, pr, headFiles, notes, options = {}
         await restore();
         return giveUp(`could not check out base ${short}`);
     }
-    const env = mergedEnv(detected.env);
+    const env = mergedEnv({ ...detected.env, PATH: pathWithBin(workDir) });
     const baseFiles = (0, env_js_1.readManifests)(workDir);
     const depsChanged = manifestsDiffer(headFiles, baseFiles);
     if (depsChanged && options.skipInstall === true) {
