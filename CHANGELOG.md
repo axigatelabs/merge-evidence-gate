@@ -9,7 +9,17 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.5.0 — unreleased
+## 0.5.1 — unreleased
+
+### Changed
+
+- A `test` script that is a chain around the real runner — `pnpm supabase
+  start && pnpm run test:local && pnpm supabase stop` — now runs the nested
+  step that names the runner (`pnpm run test:local`) with the reporter
+  injected there, and says so on the receipt. Before, the reporter flags were
+  appended to the chain's last link. Seen on supabase's `apps/docs`.
+
+## 0.5.0 — 2026-09-05
 
 ### Changed
 
