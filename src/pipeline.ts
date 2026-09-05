@@ -765,6 +765,7 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
   let claimedCommand: string | undefined;
   let claimedPaths: string[] = [];
+  let claimedId: string | undefined;
   if (operatorCommand === undefined && opts.preferClaimedCommand === true) {
     const claimed = claims.find(
       (c): c is typeof c & { parsed: { kind: 'command'; runner: string; raw: string; paths: string[] } } =>
@@ -775,6 +776,7 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
       if (stripped !== '') {
         claimedCommand = stripped;
         claimedPaths = claimed.parsed.paths;
+        claimedId = claimed.id;
         const note = `runner: running the command the PR claimed (${claimed.id}): \`${claimedCommand}\``;
         core.info(note);
         notes.push(note);
@@ -827,6 +829,7 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     observed = await runTests(detected, workDir, files, notes, {
       ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
     });
+    if (claimedId !== undefined) observed = { ...observed, claimId: claimedId };
 
     // A failed head run is compared against the base commit before it can be
     // held against the PR: many repositories fail some tests on a clean runner

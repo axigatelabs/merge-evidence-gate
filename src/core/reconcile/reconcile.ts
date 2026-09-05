@@ -313,6 +313,17 @@ function checkC2(
       continue;
     }
 
+    // A count reports on the command it follows. When the run executed a
+    // different claimed command, the count has nothing to be compared with.
+    if (
+      claim.commandRef !== undefined &&
+      observed.claimId !== undefined &&
+      claim.commandRef !== observed.claimId
+    ) {
+      unverifiable.push(claim.id);
+      continue;
+    }
+
     // A claim smaller than the run describes a subset — "322 tests" for one
     // package while the gate ran the whole monorepo (5,904). The observed
     // totals then say nothing about that subset, failures included, so the

@@ -33,6 +33,15 @@ import type {
 const FENCE = /^ {0,3}(?:```|~~~)/;
 /** An ATX heading: "## Test plan" → section "Test plan". */
 const HEADING = /^ {0,3}(#{1,6})\s+(.*)$/;
+
+/**
+ * Sections that describe some other state than this pull request's result:
+ * "Before (e0e2492)", "Previously", "Steps to reproduce", "Current behavior".
+ * A command or count there reports on the bug, not on the change, and is not
+ * a claim.
+ */
+const NON_ASSERTIVE_SECTION =
+  /^(?:before\b|previously\b|prior(?:\s+to)?\b|old\s+behaviou?r|without\s+(?:the\s+|this\s+)?(?:fix|change|patch)\b|repro(?:duction)?\b|steps\s+to\s+reproduce|current\s+behaviou?r|expected\s+behaviou?r|actual\s+behaviou?r)/i;
 /** "- [x] label" / "* [ ] label" — the checkbox claim. */
 const CHECKBOX = /^\s*[-*+]\s+\[([ xX])\]\s?(.*)$/;
 /** An inline-code span: `go test ./...`. Backticks are excluded from the body. */
@@ -433,6 +442,9 @@ function collectFromLine(line: string, section: string | undefined): Candidate[]
 export function extractClaims(pr: PullRequestFacts): Claim[] {
   const claims: Claim[] = [];
   let section: string | undefined;
+  let skipSection = false;
+  /** The last command claim in the current section: the run a following count reports on. */
+  let lastCommand: string | undefined;
   let inFence = false;
   let inComment = false;
 
@@ -451,11 +463,18 @@ export function extractClaims(pr: PullRequestFacts): Claim[] {
     if (heading) {
       // "## Test plan ##" → "Test plan". The heading itself is never a claim.
       section = (heading[2] ?? '').replace(/\s*#+\s*$/, '').trim() || undefined;
+      skipSection = section !== undefined && NON_ASSERTIVE_SECTION.test(section);
+      lastCommand = undefined;
       continue;
     }
+    if (skipSection) continue;
 
     for (const candidate of collectFromLine(line, section)) {
-      claims.push({ id: `c${claims.length + 1}`, ...candidate.claim });
+      const id = `c${claims.length + 1}`;
+      const claim: Claim = { id, ...candidate.claim };
+      if (claim.kind === 'command') lastCommand = id;
+      if (claim.kind === 'count' && lastCommand !== undefined) claim.commandRef = lastCommand;
+      claims.push(claim);
     }
   }
 
