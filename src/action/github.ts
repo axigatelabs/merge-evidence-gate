@@ -141,3 +141,27 @@ async function findStickyComment(
   }
   return undefined;
 }
+
+/**
+ * The commit a pull request forked from, from the compare API. A shallow
+ * checkout may hold no merge base; the API always knows it. Best-effort:
+ * undefined when the call fails or the token cannot read the repository.
+ */
+export async function fetchMergeBase(
+  octokit: Octokit,
+  ref: RepoRef,
+  base: string,
+  head: string,
+): Promise<string | undefined> {
+  try {
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({
+      owner: ref.owner,
+      repo: ref.repo,
+      basehead: `${base}...${head}`,
+    });
+    const sha = data.merge_base_commit?.sha;
+    return typeof sha === 'string' && sha !== '' ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}

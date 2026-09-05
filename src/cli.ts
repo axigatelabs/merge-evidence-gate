@@ -39,6 +39,9 @@ Pull request facts (all optional; the more you pass, the more can be checked):
   --repo <owner/name>      Repository the PR belongs to.
   --pr <n>                 Pull request number.
   --base <sha>             Base commit; without it the diff-based checks are skipped.
+  --merge-base <sha>       The commit the change forked from, when known. The diff
+                           and the base run are taken against it; a shallow
+                           checkout needs it, since --base may be the branch tip.
   --author <login>         PR author login.
   --head-ref <branch>      Head branch name.
   --base-ref <branch>      Base branch name.
@@ -123,6 +126,7 @@ export async function main(argv: string[]): Promise<number> {
         pr: { type: 'string' },
         head: { type: 'string' },
         base: { type: 'string' },
+        'merge-base': { type: 'string' },
         author: { type: 'string' },
         'head-ref': { type: 'string' },
         'base-ref': { type: 'string' },
@@ -172,6 +176,7 @@ export async function main(argv: string[]): Promise<number> {
       number: prNumber,
       headSha: head.trim(),
       baseSha: (values.base ?? '').trim(),
+      ...((values['merge-base'] ?? '').trim() === '' ? {} : { mergeBaseSha: (values['merge-base'] ?? '').trim() }),
       baseRef: values['base-ref'] ?? '',
       headRef: values['head-ref'] ?? '',
       authorLogin: values.author ?? '',

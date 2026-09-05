@@ -82894,6 +82894,7 @@ exports.parseRepo = parseRepo;
 exports.isPermissionError = isPermissionError;
 exports.listCommitMessages = listCommitMessages;
 exports.upsertStickyComment = upsertStickyComment;
+exports.fetchMergeBase = fetchMergeBase;
 /** `"owner/name"` → `{ owner, repo }`; the second half may itself contain no slash. */
 function parseRepo(fullName) {
     const slash = fullName.indexOf('/');
@@ -82994,6 +82995,25 @@ async function findStickyComment(octokit, ref, issueNumber, marker) {
         return comment.id;
     }
     return undefined;
+}
+/**
+ * The commit a pull request forked from, from the compare API. A shallow
+ * checkout may hold no merge base; the API always knows it. Best-effort:
+ * undefined when the call fails or the token cannot read the repository.
+ */
+async function fetchMergeBase(octokit, ref, base, head) {
+    try {
+        const { data } = await octokit.rest.repos.compareCommitsWithBasehead({
+            owner: ref.owner,
+            repo: ref.repo,
+            basehead: `${base}...${head}`,
+        });
+        const sha = data.merge_base_commit?.sha;
+        return typeof sha === 'string' && sha !== '' ? sha : undefined;
+    }
+    catch {
+        return undefined;
+    }
 }
 
 
@@ -83266,6 +83286,11 @@ const QUOTED_SPAN = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
  * against the wrong thing.
  */
 const COMPARISON_LINE = /\b(?:observed|claimed|at base|at head|vs\.?|versus|previously|before this|before the fix|under \d)\b|\bhead\b.*\bbase\b|\bbase\b.*\bhead\b/i;
+/** "404 error", "500 errors": an HTTP status, not a count of failing tests. */
+function isHttpStatus(pair) {
+    const n = Number(pair[1]);
+    return /^errors?$/i.test(pair[2] ?? '') && n >= 100 && n <= 599;
+}
 /** The `[start, end)` ranges of every quoted span on the line. */
 function quotedRanges(line) {
     return [...line.matchAll(QUOTED_SPAN)].map((m) => [m.index, m.index + m[0].length]);
@@ -83407,7 +83432,8 @@ function collectFromLine(line, section) {
     const quoted = quotedRanges(line);
     const pairs = COMPARISON_LINE.test(line)
         ? []
-        : [...line.matchAll(COUNT_TOKEN)].filter((pair) => !quoted.some(([start, end]) => pair.index >= start && pair.index < end));
+        : [...line.matchAll(COUNT_TOKEN)].filter((pair) => !quoted.some(([start, end]) => pair.index >= start && pair.index < end) &&
+            !isHttpStatus(pair));
     for (let i = 0; i < pairs.length;) {
         const first = pairs[i];
         if (first === undefined)
@@ -84206,7 +84232,7 @@ exports.DEFAULT_POLICY = exports.CHECK_IDS = void 0;
 exports.resolveSeverity = resolveSeverity;
 exports.parsePolicyYaml = parsePolicyYaml;
 /** Every check the reconciler can emit, in receipt order. */
-exports.CHECK_IDS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
+exports.CHECK_IDS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9'];
 /** The v1 defaults; severities exactly as docs/receipt-spec.md. */
 exports.DEFAULT_POLICY = {
     version: '1.0.0',
@@ -84219,6 +84245,7 @@ exports.DEFAULT_POLICY = {
         C6: 'needs-human',
         C7: 'needs-human',
         C8: 'info',
+        C9: 'needs-human',
     },
     agentsOnly: true,
 };
@@ -84470,6 +84497,7 @@ function buildReceipt(input) {
             sensitive_paths: sortUnique(diff.verificationLayerEdits.map((edit) => edit.file)),
             lockfiles: sortUnique(diff.dependencyFiles),
             snapshots: sortUnique(diff.snapshotFiles),
+            ...(diff.unreliable === true ? { unreliable: true } : {}),
         },
         discrepancies: discrepancies.map((d) => ({ ...d, evidence: [...d.evidence] })),
         verdict,
@@ -84803,15 +84831,21 @@ function checkC2(claims, observed, policy) {
             unverifiable.push(claim.id);
             continue;
         }
+        // With a baseline, failures the base commit shows too are the runner's
+        // environment, not the run the author reported: they count as passed for
+        // the comparison and only introduced failures count as failed.
+        const split = partitionFailures(observed);
+        const failedHere = split === undefined ? observed.totals.failed : split.introduced.length;
+        const passedHere = split === undefined ? observed.totals.passed : observed.totals.passed + split.preExisting.length;
         const comparisons = [];
         if (parsed.total !== undefined && parsed.total !== observed.totals.run) {
             comparisons.push({ label: 'total', claimed: parsed.total, observed: observed.totals.run });
         }
-        if (parsed.passed !== undefined && parsed.passed !== observed.totals.passed) {
-            comparisons.push({ label: 'passed', claimed: parsed.passed, observed: observed.totals.passed });
+        if (parsed.passed !== undefined && parsed.passed !== passedHere) {
+            comparisons.push({ label: 'passed', claimed: parsed.passed, observed: passedHere });
         }
-        if (parsed.failed !== undefined && parsed.failed !== observed.totals.failed) {
-            comparisons.push({ label: 'failed', claimed: parsed.failed, observed: observed.totals.failed });
+        if (parsed.failed !== undefined && parsed.failed !== failedHere) {
+            comparisons.push({ label: 'failed', claimed: parsed.failed, observed: failedHere });
         }
         if (comparisons.length === 0)
             continue;
@@ -84823,10 +84857,15 @@ function checkC2(claims, observed, policy) {
             summary: first === undefined
                 ? 'Claimed counts differ from the observed run'
                 : `Claimed ${first.claimed} ${first.label}; ${first.observed} observed`,
-            evidence: comparisons.flatMap((c) => [
-                `claimed ${c.label}=${c.claimed}`,
-                `observed ${c.label === 'total' ? 'run' : c.label}=${c.observed}`,
-            ]),
+            evidence: [
+                ...comparisons.flatMap((c) => [
+                    `claimed ${c.label}=${c.claimed}`,
+                    `observed ${c.label === 'total' ? 'run' : c.label}=${c.observed}`,
+                ]),
+                ...(split === undefined || split.preExisting.length === 0
+                    ? []
+                    : [`${split.preExisting.length} failure(s) also present at base, not counted`]),
+            ],
         });
     }
     return { discrepancies, unverifiable };
@@ -84890,8 +84929,9 @@ function checkC7(claims, diff, policy) {
     if (eligible.length === 0)
         return { discrepancies: [], unverifiable: [] };
     const changed = diff.fileCount ?? changedFileCount(diff);
-    if (changed === 0)
+    if (changed === 0 || diff.unreliable === true) {
         return { discrepancies: [], unverifiable: eligible.map((claim) => claim.id) };
+    }
     const touched = diff.testFiles.added.length + diff.testFiles.modified.length + diff.testFiles.renamed.length;
     if (touched > 0)
         return { discrepancies: [], unverifiable: [] };
@@ -84937,6 +84977,10 @@ function checkC3(diff, observed, policy) {
             evidence: capped(gone, MAX_EVIDENCE).map((id) => `${id} enumerated at base, absent at head`),
         });
     }
+    // Everything below reads the diff; a two-dot list without a merge base
+    // would show upstream additions as this PR's deletions.
+    if (diff.unreliable === true)
+        return discrepancies;
     const deleted = sorted(diff.testFiles.deleted);
     if (deleted.length > 0) {
         discrepancies.push({
@@ -84979,6 +85023,8 @@ function checkC3(diff, observed, policy) {
 }
 /** C4 — CI workflow, coverage threshold, or agent-rules file edited. */
 function checkC4(diff, policy) {
+    if (diff.unreliable === true)
+        return [];
     const severity = (0, policy_js_1.resolveSeverity)('C4', policy);
     return [...diff.verificationLayerEdits]
         .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.reason < b.reason ? -1 : 1))
@@ -85000,6 +85046,8 @@ function mentionedInBody(path, body) {
 }
 /** C5 — lockfile / dependency manifest changed without being mentioned. */
 function checkC5(diff, pr, policy) {
+    if (diff.unreliable === true)
+        return [];
     const files = sorted(diff.dependencyFiles);
     if (files.length === 0)
         return [];
@@ -85016,6 +85064,8 @@ function checkC5(diff, pr, policy) {
 }
 /** C6 — snapshot or golden files updated. */
 function checkC6(diff, policy) {
+    if (diff.unreliable === true)
+        return [];
     const files = sorted(diff.snapshotFiles);
     if (files.length === 0)
         return [];
@@ -85030,6 +85080,8 @@ function checkC6(diff, policy) {
 }
 /** C8 — files changed outside what the PR describes (informational). */
 function checkC8(diff, pr, policy) {
+    if (diff.unreliable === true)
+        return [];
     const allow = policy.scopeAllow ?? [];
     const unmentioned = sorted(diff.sourceFiles).filter((file) => !mentionedInBody(file, pr.body) && !matchesAnyGlob(file, allow));
     if (unmentioned.length === 0)
@@ -85040,6 +85092,31 @@ function checkC8(diff, pr, policy) {
             severity: (0, policy_js_1.resolveSeverity)('C8', policy),
             summary: `${unmentioned.length} changed file${unmentioned.length === 1 ? '' : 's'} not mentioned in the PR body`,
             evidence: capped(unmentioned, MAX_SCOPE_FILES),
+        },
+    ];
+}
+/**
+ * C9 — tests that pass at the base commit fail at head: the pull request
+ * introduced failures, whatever its description says. Needs the base run;
+ * a base run without evidence proves nothing.
+ */
+function checkC9(observed, policy) {
+    const baseline = observed.baseline;
+    const split = partitionFailures(observed);
+    if (baseline === undefined || baseline.noEvidence === true || split === undefined)
+        return [];
+    if (split.introduced.length === 0)
+        return [];
+    const n = split.introduced.length;
+    return [
+        {
+            check: 'C9',
+            severity: (0, policy_js_1.resolveSeverity)('C9', policy),
+            summary: `${n} test${n === 1 ? '' : 's'} pass${n === 1 ? 'es' : ''} at base ${baseline.sha.slice(0, 7)} and fail${n === 1 ? 's' : ''} at head`,
+            evidence: [
+                ...capped(split.introduced.map((id) => `introduced: ${id}`), MAX_EVIDENCE),
+                `base ${baseline.sha.slice(0, 7)}: exit_code=${baseline.exitCode}, ${baseline.totals.failed} failed there`,
+            ],
         },
     ];
 }
@@ -85091,6 +85168,7 @@ function reconcile(input) {
         ...checkC5(diff, pr, policy),
         ...checkC6(diff, policy),
         ...c7.discrepancies,
+        ...checkC9(observed, policy),
         ...checkC8(diff, pr, policy),
     ];
     return {
@@ -85265,15 +85343,20 @@ function claimLines(receipt, unverifiable) {
 function verificationLines(receipt) {
     const lines = [];
     const of = (check) => receipt.discrepancies.filter((d) => d.check === check);
-    for (const discrepancy of [...of('C3'), ...of('C4')])
+    if (receipt.diff.unreliable === true) {
+        lines.push('- ⚠ no merge base with the base commit (shallow checkout?) — the change-based checks did not run; check out with `fetch-depth: 0`');
+    }
+    for (const discrepancy of [...of('C3'), ...of('C4'), ...of('C9')])
         lines.push(findingLine(discrepancy));
     for (const discrepancy of [...of('C5'), ...of('C6')])
         lines.push(findingLine(discrepancy));
-    const markersClean = receipt.diff.tests.skipped_added.length === 0 && receipt.diff.tests.focused.length === 0;
-    if (markersClean)
-        lines.push('- ✔ no skip/only markers added');
-    if (of('C5').length === 0)
-        lines.push('- ✔ lockfile install OK');
+    if (receipt.diff.unreliable !== true) {
+        const markersClean = receipt.diff.tests.skipped_added.length === 0 && receipt.diff.tests.focused.length === 0;
+        if (markersClean)
+            lines.push('- ✔ no skip/only markers added');
+        if (of('C5').length === 0)
+            lines.push('- ✔ lockfile install OK');
+    }
     return lines;
 }
 function scopeLines(receipt) {
@@ -86566,6 +86649,17 @@ async function run() {
             core.warning(`commits: could not list this PR's commits (${commits.error}) — co-author trailers were not read`);
         }
         pr.commitMessages = commits.messages;
+        // The payload's base sha is the base branch's tip, not the fork point. The
+        // pipeline finds the merge base locally when the history is there; on a
+        // shallow checkout this is what keeps the diff the pull request's own.
+        if (pr.baseSha !== '') {
+            const mergeBase = await (0, github_js_1.fetchMergeBase)(octokit, ref, pr.baseSha, pr.headSha);
+            if (mergeBase !== undefined) {
+                pr.mergeBaseSha = mergeBase;
+                if (mergeBase !== pr.baseSha)
+                    core.info(`diff: merge base ${mergeBase.slice(0, 7)} (base tip ${pr.baseSha.slice(0, 7)})`);
+            }
+        }
     }
     // The policy is read before the agent gate so a repository can turn
     // `agents-only` off (or on) in one place instead of in every workflow file.
@@ -86673,9 +86767,12 @@ exports.findNestedReports = findNestedReports;
 exports.runTests = runTests;
 exports.writeSafely = writeSafely;
 exports.collectDiff = collectDiff;
+exports.mergeBaseOf = mergeBaseOf;
+exports.changedFilesDetailed = changedFilesDetailed;
 exports.changedFiles = changedFiles;
 exports.evaluate = evaluate;
 exports.workspacePackages = workspacePackages;
+exports.packagesHoldingPaths = packagesHoldingPaths;
 exports.manifestsDiffer = manifestsDiffer;
 exports.needsBaseline = needsBaseline;
 exports.runBaseline = runBaseline;
@@ -87153,39 +87250,83 @@ function writeSafely(path, contents) {
  * not be in the object store; it is fetched on demand, and if that fails too the
  * gate reports an empty diff (losing the C3–C8 checks) rather than failing.
  */
-async function collectDiff(workDir, pr, policy, notes, changed) {
-    const files = changed ?? (await changedFiles(workDir, pr, notes));
-    core.info(`diff: ${files.length} changed file(s)`);
+async function collectDiff(workDir, pr, policy, notes, change) {
+    const list = change ?? (await changedFilesDetailed(workDir, pr, notes));
+    core.info(`diff: ${list.files.length} changed file(s)${list.unreliable ? ' (unreliable: no merge base)' : ''}`);
     return {
-        ...(0, index_js_2.analyzeDiff)(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
+        ...(0, index_js_2.analyzeDiff)(list.files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
         // The raw count survives scope filtering, so a check can tell "nothing
         // changed / base not comparable" apart from "only allow-listed paths changed".
-        fileCount: files.length,
+        fileCount: list.files.length,
+        ...(list.unreliable ? { unreliable: true } : {}),
     };
 }
-async function changedFiles(workDir, pr, notes) {
-    if (pr.baseSha === '')
-        return [];
-    const present = await git(workDir, 'cat-file', '-e', `${pr.baseSha}^{commit}`);
+async function ensureCommit(workDir, sha, label) {
+    const present = await git(workDir, 'cat-file', '-e', `${sha}^{commit}`);
     if (present.code !== 0) {
-        core.info(`diff: base ${pr.baseSha.slice(0, 7)} not present locally, fetching`);
-        await git(workDir, 'fetch', '--no-tags', '--depth=1', 'origin', pr.baseSha);
+        core.info(`diff: ${label} ${sha.slice(0, 7)} not present locally, fetching`);
+        await git(workDir, 'fetch', '--no-tags', '--depth=1', 'origin', sha);
     }
-    // `base...head` is the right comparison (changes on the branch only), but it
-    // needs a merge base, which a shallow fetch does not provide; a two-dot diff
-    // is the honest fallback.
-    for (const range of [`${pr.baseSha}...${pr.headSha}`, `${pr.baseSha} ${pr.headSha}`]) {
-        const args = range.split(' ');
-        const nameStatus = await git(workDir, 'diff', '--name-status', '-M', ...args);
-        if (nameStatus.code !== 0)
-            continue;
-        const patches = await git(workDir, 'diff', '--unified=0', '-M', ...args);
-        return (0, env_js_1.parseNameStatus)(nameStatus.stdout, patches.code === 0 ? patches.stdout : '');
+}
+/** The merge base of two commits, when the local history connects them. */
+async function mergeBaseOf(workDir, base, head) {
+    const result = await git(workDir, 'merge-base', base, head);
+    const sha = result.stdout.trim();
+    return result.code === 0 && sha !== '' ? sha : undefined;
+}
+/**
+ * What the pull request changed, taken against the commit it forked from.
+ *
+ * A diff against the base branch's TIP is only right when that tip is the fork
+ * point. Otherwise everything the base branch did since the fork shows up as
+ * the pull request's doing — upstream additions read as its deletions, and a
+ * C3 "test file deleted" fires on a change that touched no test. So the diff
+ * is taken against the merge base: the one the caller supplied, or the one
+ * git finds, deepening a shallow history twice to find it. When there is still
+ * none, the two-dot list is returned marked `unreliable`, and the change-based
+ * checks abstain rather than guess.
+ */
+async function changedFilesDetailed(workDir, pr, notes) {
+    if (pr.baseSha === '' && pr.mergeBaseSha === undefined)
+        return { files: [], unreliable: false };
+    const head7 = pr.headSha.slice(0, 7);
+    let mergeBase;
+    if (pr.mergeBaseSha !== undefined && pr.mergeBaseSha !== '') {
+        await ensureCommit(workDir, pr.mergeBaseSha, 'merge base');
+        mergeBase = pr.mergeBaseSha;
     }
-    const note = `diff: could not compare ${pr.baseSha.slice(0, 7)}...${pr.headSha.slice(0, 7)}; the change-based checks did not run`;
-    core.warning(note);
-    notes.push(note);
-    return [];
+    else {
+        await ensureCommit(workDir, pr.baseSha, 'base');
+        mergeBase = await mergeBaseOf(workDir, pr.baseSha, pr.headSha);
+        for (const depth of [100, 500]) {
+            if (mergeBase !== undefined)
+                break;
+            core.info(`diff: no merge base between ${pr.baseSha.slice(0, 7)} and ${head7}; deepening history by ${depth}`);
+            await git(workDir, 'fetch', '--no-tags', `--deepen=${depth}`, 'origin', pr.baseSha, pr.headSha);
+            mergeBase = await mergeBaseOf(workDir, pr.baseSha, pr.headSha);
+        }
+    }
+    const against = mergeBase ?? pr.baseSha;
+    const nameStatus = await git(workDir, 'diff', '--name-status', '-M', against, pr.headSha);
+    if (nameStatus.code !== 0) {
+        const note = `diff: could not compare ${against.slice(0, 7)} with ${head7}; the change-based checks did not run`;
+        core.warning(note);
+        notes.push(note);
+        return { files: [], unreliable: false };
+    }
+    const patches = await git(workDir, 'diff', '--unified=0', '-M', against, pr.headSha);
+    const files = (0, env_js_1.parseNameStatus)(nameStatus.stdout, patches.code === 0 ? patches.stdout : '');
+    if (mergeBase === undefined) {
+        const note = `diff: no merge base between ${pr.baseSha.slice(0, 7)} and ${head7} (shallow checkout?); the change-based checks did not run — check out with fetch-depth: 0`;
+        core.warning(note);
+        notes.push(note);
+        return { files, unreliable: true };
+    }
+    return { files, unreliable: false, mergeBase };
+}
+/** The change list alone; see `changedFilesDetailed`. */
+async function changedFiles(workDir, pr, notes) {
+    return (await changedFilesDetailed(workDir, pr, notes)).files;
 }
 /**
  * Turn a pull request and a checkout into a verdict, a receipt and a rendered
@@ -87219,16 +87360,20 @@ async function evaluate(opts) {
     core.info(`claims: ${claims.length} extracted from the PR body`);
     // The changed files are needed before the run: in a workspace whose root has
     // no test command, the packages this PR touches are what gets tested.
-    const changed = pr.baseSha === '' ? [] : await changedFiles(workDir, pr, notes);
-    const packages = workspacePackages(workDir, changed);
+    const change = pr.baseSha === '' && pr.mergeBaseSha === undefined
+        ? { files: [], unreliable: false }
+        : await changedFilesDetailed(workDir, pr, notes);
+    const packages = workspacePackages(workDir, change.files);
     const operatorCommand = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
     let claimedCommand;
+    let claimedPaths = [];
     if (operatorCommand === undefined && opts.preferClaimedCommand === true) {
         const claimed = claims.find((c) => c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown');
         if (claimed !== undefined) {
             const stripped = withoutInstallSteps(claimed.parsed.raw);
             if (stripped !== '') {
                 claimedCommand = stripped;
+                claimedPaths = claimed.parsed.paths;
                 const note = `runner: running the command the PR claimed (${claimed.id}): \`${claimedCommand}\``;
                 core.info(note);
                 notes.push(note);
@@ -87245,9 +87390,12 @@ async function evaluate(opts) {
         detected = root;
     }
     else if (claimedCommand !== undefined) {
+        // A claimed command that names paths (`vitest --run components/x`) is meant
+        // for the package where those paths exist, not every touched package.
+        const holding = packagesHoldingPaths(workDir, packages, claimedPaths);
         detected =
             root === null && packages.length > 0
-                ? (0, index_js_4.detectWorkspaceCommand)({ explicit: claimedCommand, rootFiles: files, packages })
+                ? (0, index_js_4.detectWorkspaceCommand)({ explicit: claimedCommand, rootFiles: files, packages: holding })
                 : (0, index_js_4.detectTestCommand)({ explicit: claimedCommand, files });
     }
     else {
@@ -87288,13 +87436,16 @@ async function evaluate(opts) {
                 core.info(`baseline: the head run failed (exit ${observed.exitCode}) — running the same command at base ${pr.baseSha.slice(0, 7)}`);
                 const baseline = await runBaseline(detected, workDir, pr, files, notes, {
                     ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
+                    // Compare at the fork point when it is known: the base tip may carry
+                    // unrelated newer changes that would muddy the attribution.
+                    baseSha: pr.mergeBaseSha ?? change.mergeBase ?? pr.baseSha,
                 });
                 if (baseline !== undefined)
                     observed = { ...observed, baseline };
             }
         }
     }
-    const diff = await collectDiff(workDir, pr, policy, notes, changed);
+    const diff = await collectDiff(workDir, pr, policy, notes, change);
     const { discrepancies, verdict, unverifiable } = (0, index_js_3.reconcile)({ pr, claims, observed, diff, policy });
     const receipt = (0, index_js_3.buildReceipt)({ pr, agent, claims, observed, diff, discrepancies, verdict, policy });
     const rendered = (0, index_js_3.renderComment)(receipt, { unverifiable: [...unverifiable, ...notes] });
@@ -87334,6 +87485,22 @@ function workspacePackages(workDir, changed) {
         .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
         .map(([dir]) => ({ dir, files: (0, env_js_1.readManifests)((0, node_path_1.join)(workDir, dir)) }));
 }
+/** Strip the selector syntax a claimed path may carry: `./pkg/...`, `tests/**`. */
+function selectorPath(selector) {
+    return selector.trim().replace(/^\.\//, '').replace(/\/?(?:\.\.\.|\*\*)$/, '').replace(/\/$/, '');
+}
+/**
+ * The packages in which every claimed path exists — the ones a claimed
+ * `vitest --run components/x` can mean. With no paths, or none found anywhere,
+ * every package stays in: the paths may be relative to the root.
+ */
+function packagesHoldingPaths(workDir, packages, claimedPaths) {
+    const paths = claimedPaths.map(selectorPath).filter((p) => p !== '' && p !== '.');
+    if (paths.length === 0)
+        return packages;
+    const holding = packages.filter((pkg) => paths.every((p) => (0, node_fs_1.existsSync)((0, node_path_1.join)(workDir, pkg.dir, p))));
+    return holding.length > 0 ? holding : packages;
+}
 /** Manifests whose change between base and head means base needs its own install. */
 const DEPENDENCY_MANIFESTS = [
     'package.json',
@@ -87372,7 +87539,7 @@ function needsBaseline(observed) {
  * never a failure: the head result then stands as observed.
  */
 async function runBaseline(detected, workDir, pr, headFiles, notes, options = {}) {
-    const sha = pr.baseSha;
+    const sha = options.baseSha ?? pr.baseSha;
     const short = sha.slice(0, 7);
     const giveUp = (reason) => {
         const note = `baseline: ${reason}; the head failure could not be compared against base ${short}`;

@@ -73,6 +73,10 @@ PY
 [ -n "$rec" ] || { echo "no record for #$NUM in $DATA/prs.jsonl" >&2; exit 2; }
 field() { echo "$rec" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))"; }
 HEAD=$(field head_sha); BASE=$(field base_sha); AUTHOR=$(field author); HREF=$(field head_ref); BREF=$(field base_ref); TITLE=$(field title)
+# The merge base (recorded by fetch-prs.sh) is the commit the change is really
+# against; `base_sha` is only the base branch's tip at fetch time. Both are
+# passed: the gate diffs and compares against the merge base.
+MB=$(field merge_base_sha); [ -n "$MB" ] || MB="$BASE"
 cp "$DATA/$NUM.body.md" "$WORK/body.md"; cp "$DATA/$NUM.commits.txt" "$WORK/commits.txt" 2>/dev/null || : > "$WORK/commits.txt"
 [ -f "$GATE/dist/cli/index.js" ] || { echo "gate CLI not built: run 'npm run build' in $GATE" >&2; exit 2; }
 
@@ -87,10 +91,11 @@ docker run --rm --name "meg-$KEY-$NUM-p1" "${RES_ARGS[@]}" "${CACHE_ARGS[@]}" -v
     set -e
     git clone -q --no-checkout --filter=blob:none https://github.com/$REPO.git /work/repo
     cd /work/repo
-    git fetch -q --depth=1 origin $HEAD && git fetch -q --depth=1 origin $BASE
-    # A blobless clone fetches file contents lazily; touch the base once while
-    # the network is on so phase 2 (offline) can check it out for the base run.
-    git checkout -q $BASE && git checkout -q $HEAD
+    git fetch -q --depth=1 origin $HEAD && git fetch -q --depth=1 origin $BASE && git fetch -q --depth=1 origin $MB
+    # A blobless clone fetches file contents lazily; touch the merge base once
+    # while the network is on so phase 2 (offline) can check it out for the
+    # base run.
+    git checkout -q $MB && git checkout -q $HEAD
     # pnpm only honours settings from its own config (not the npm env vars).
     # Large tarballs (onnxruntime, couchbase, turbo binaries) blow the 60 s
     # default fetch timeout from inside Docker, so give fetches real room.
@@ -109,7 +114,7 @@ echo "[$KEY#$NUM] phase 2: clean re-run, network off" >&2
 # is a dead network wait. The environment was synced in phase 1.
 docker run --rm --network none --name "meg-$KEY-$NUM-p2" "${RES_ARGS[@]}" \
   -e UV_NO_SYNC=1 -e UV_OFFLINE=1 -e PIP_NO_INDEX=1 \
-  -e MEG_REPO="$REPO" -e MEG_NUM="$NUM" -e MEG_HEAD="$HEAD" -e MEG_BASE="$BASE" \
+  -e MEG_REPO="$REPO" -e MEG_NUM="$NUM" -e MEG_HEAD="$HEAD" -e MEG_BASE="$BASE" -e MEG_MB="$MB" \
   -e MEG_AUTHOR="$AUTHOR" -e MEG_HREF="$HREF" -e MEG_BREF="$BREF" -e MEG_TITLE="$TITLE" \
   -e MEG_TEST_CMD="$TEST_CMD" -e MEG_TIMEOUT="$TIMEOUT" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/repo" \
   -v "$WORK:/work" -v "$GATE:/gate:ro" "$IMG" bash -lc '
@@ -122,7 +127,7 @@ docker run --rm --network none --name "meg-$KEY-$NUM-p2" "${RES_ARGS[@]}" \
     pnpm config set verify-deps-before-run false >/dev/null 2>&1 || true
     extra=(); [ -n "$MEG_TEST_CMD" ] && extra=(--test-command "$MEG_TEST_CMD")
     timeout "$MEG_TIMEOUT" node /gate/dist/cli/index.js --skip-install --work /work/repo \
-      --repo "$MEG_REPO" --pr "$MEG_NUM" --head "$MEG_HEAD" --base "$MEG_BASE" --author "$MEG_AUTHOR" \
+      --repo "$MEG_REPO" --pr "$MEG_NUM" --head "$MEG_HEAD" --base "$MEG_BASE" --merge-base "$MEG_MB" --author "$MEG_AUTHOR" \
       --head-ref "$MEG_HREF" --base-ref "$MEG_BREF" --title "$MEG_TITLE" \
       --body-file /work/body.md --commits-file /work/commits.txt --agents-only false \
       --prefer-claimed-command "${extra[@]}" --out /work/receipt.json --markdown /work/receipt.md

@@ -21,6 +21,8 @@ severity:
   C7: needs-human
   # C8: files changed outside what the PR describes
   C8: info
+  # C9: tests that pass at the base commit fail at head (introduced failures)
+  C9: needs-human
 
 # Paths allowed to change without being mentioned in the PR body (globs).
 scope-allow:

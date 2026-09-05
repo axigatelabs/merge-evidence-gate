@@ -116,7 +116,7 @@ it needs is a string in, structured tests out.
    silently resolves to `info` and never blocks (`test/reconcile/policy.test.ts`
    pins the full map). Never reuse a retired id — receipts in the wild carry
    them. (`C7` was held back until 0.2.0, when it became the "tests added"
-   check; the next free id is `C9`.)
+   check, and `C9` became introduced failures in 0.6.0; the next free id is `C10`.)
 2. **Write the detection in the right module.** Something about the description
    goes in `src/core/claims/`; something about the diff goes in
    `src/core/diff/classify.ts` or `markers.ts`; something about the run goes in

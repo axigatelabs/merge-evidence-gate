@@ -199,13 +199,20 @@ function verificationLines(receipt: Receipt): string[] {
   const of = (check: Discrepancy['check']): Discrepancy[] =>
     receipt.discrepancies.filter((d) => d.check === check);
 
-  for (const discrepancy of [...of('C3'), ...of('C4')]) lines.push(findingLine(discrepancy));
+  if (receipt.diff.unreliable === true) {
+    lines.push(
+      '- ⚠ no merge base with the base commit (shallow checkout?) — the change-based checks did not run; check out with `fetch-depth: 0`',
+    );
+  }
+  for (const discrepancy of [...of('C3'), ...of('C4'), ...of('C9')]) lines.push(findingLine(discrepancy));
   for (const discrepancy of [...of('C5'), ...of('C6')]) lines.push(findingLine(discrepancy));
 
-  const markersClean =
-    receipt.diff.tests.skipped_added.length === 0 && receipt.diff.tests.focused.length === 0;
-  if (markersClean) lines.push('- ✔ no skip/only markers added');
-  if (of('C5').length === 0) lines.push('- ✔ lockfile install OK');
+  if (receipt.diff.unreliable !== true) {
+    const markersClean =
+      receipt.diff.tests.skipped_added.length === 0 && receipt.diff.tests.focused.length === 0;
+    if (markersClean) lines.push('- ✔ no skip/only markers added');
+    if (of('C5').length === 0) lines.push('- ✔ lockfile install OK');
+  }
 
   return lines;
 }

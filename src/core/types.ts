@@ -39,6 +39,12 @@ export interface PullRequestFacts {
   number: number;
   headSha: string;
   baseSha: string;
+  /**
+   * The commit the change forked from, when the caller knows it (the study
+   * harness records it; the Action asks the API when the checkout is shallow).
+   * `baseSha` is the base branch's tip, which may be ahead of it.
+   */
+  mergeBaseSha?: string;
   baseRef: string;
   headRef: string;
   authorLogin: string;
@@ -220,6 +226,14 @@ export interface DiffAnalysis {
    * be compared; absent when the analysis was built without that count.
    */
   fileCount?: number;
+  /**
+   * True when the change list came from a two-dot diff against the base tip
+   * because no merge base was reachable (a shallow checkout). Such a list
+   * mixes the pull request's changes with everything the base branch did
+   * since the fork point — upstream additions read as the PR's deletions —
+   * so no change-based check may draw on it.
+   */
+  unreliable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +249,8 @@ export type CheckId =
   | 'C5' // unmentioned dependency / lockfile change
   | 'C6' // snapshot / golden updates
   | 'C7' // "tests added" ticked, diff touches no test file
-  | 'C8'; // scope creep (info)
+  | 'C8' // scope creep (info)
+  | 'C9'; // tests that pass at base fail at head (introduced failures)
 
 export type Severity = 'fail' | 'needs-human' | 'info';
 
@@ -311,6 +326,8 @@ export interface Receipt {
     sensitive_paths: string[];
     lockfiles: string[];
     snapshots: string[];
+    /** Present and `true` when no merge base was reachable and the change-based checks did not run. */
+    unreliable?: boolean;
   };
   discrepancies: Discrepancy[];
   verdict: Verdict;

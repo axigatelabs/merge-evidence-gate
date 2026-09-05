@@ -105,6 +105,7 @@ and removals require a new major (`/v2`).
 | `observed.no_evidence` | Present and `true` when the command ran but produced no evidence about the PR: the runner died by signal (exit 128 + signal), could not start (exit 126/127 — the toolchain is missing), or its report is missing or unparsable. Command and count claims are then unverifiable and the verdict abstains — inconclusive, not failed. A report that says the suite failed to load, or a plain `cargo test` exit code, is evidence and does not set this. |
 | `diff.tests.deleted` | Test ids present at base and absent at head — computed from runner enumeration, not regex. |
 | `diff.sensitive_paths` | Verification-layer files touched: CI workflows, coverage config, `conftest.py`, agent rule files. |
+| `diff.unreliable` | Present and `true` when no merge base was reachable and the change list is a two-dot diff against the base tip. The change-based checks did not run on it. |
 | `discrepancies[]` | One entry per rule hit. `severity` ∈ `fail`, `needs-human`, `info`. |
 | `verdict` | `PASS` (no fail/needs-human hits) · `NEEDS_HUMAN` · `FAIL` · `NEUTRAL` (no test command found, or the run produced no per-test evidence — the gate abstains unless a check that needs no run, C3–C8, fired above `info`). |
 | `policy_version` | Version of the severity policy applied, so a receipt can be re-interpreted. |
@@ -122,6 +123,7 @@ and removals require a new major (`/v2`).
 | C6 snapshot / golden updates | `needs-human` |
 | C7 "tests added" ticked, diff touches no test file | `needs-human` |
 | C8 scope creep | `info` |
+| C9 tests that pass at base fail at head | `needs-human` |
 
 Overrides live in `.merge-evidence.yml` (see `.merge-evidence.example.yml`).
 

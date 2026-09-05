@@ -12,7 +12,9 @@ inside a throwaway container:
 
 1. **Clean environment.** Fresh clone at the PR's exact head commit, dependencies
    installed from the lockfile with the network on, then the container is
-   sealed (`--network none`).
+   sealed (`--network none`). The diff and the base run are taken against the
+   commit the PR forked from (its merge base, recorded from the compare API),
+   never against the base branch's later tip.
 2. **Same tests the repository runs.** The command the PR body claimed when it
    named one with a known runner; otherwise the repository's own test command.
    A machine-readable reporter is injected; retries and result caching are off.

@@ -566,46 +566,105 @@ export async function collectDiff(
   pr: PullRequestFacts,
   policy: Policy,
   notes: string[],
-  changed?: ChangedFile[],
+  change?: ChangeList,
 ): Promise<DiffAnalysis> {
-  const files = changed ?? (await changedFiles(workDir, pr, notes));
-  core.info(`diff: ${files.length} changed file(s)`);
+  const list = change ?? (await changedFilesDetailed(workDir, pr, notes));
+  core.info(`diff: ${list.files.length} changed file(s)${list.unreliable ? ' (unreliable: no merge base)' : ''}`);
   return {
-    ...analyzeDiff(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
+    ...analyzeDiff(list.files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
     // The raw count survives scope filtering, so a check can tell "nothing
     // changed / base not comparable" apart from "only allow-listed paths changed".
-    fileCount: files.length,
+    fileCount: list.files.length,
+    ...(list.unreliable ? { unreliable: true } : {}),
   };
 }
 
+/** The change list, and whether it can be trusted to be this pull request's own. */
+export interface ChangeList {
+  files: ChangedFile[];
+  /** No merge base was reachable: the list is a two-dot diff against the base tip. */
+  unreliable: boolean;
+  /** The commit the diff was taken against when a merge base was found or given. */
+  mergeBase?: string;
+}
+
+async function ensureCommit(workDir: string, sha: string, label: string): Promise<void> {
+  const present = await git(workDir, 'cat-file', '-e', `${sha}^{commit}`);
+  if (present.code !== 0) {
+    core.info(`diff: ${label} ${sha.slice(0, 7)} not present locally, fetching`);
+    await git(workDir, 'fetch', '--no-tags', '--depth=1', 'origin', sha);
+  }
+}
+
+/** The merge base of two commits, when the local history connects them. */
+export async function mergeBaseOf(workDir: string, base: string, head: string): Promise<string | undefined> {
+  const result = await git(workDir, 'merge-base', base, head);
+  const sha = result.stdout.trim();
+  return result.code === 0 && sha !== '' ? sha : undefined;
+}
+
+/**
+ * What the pull request changed, taken against the commit it forked from.
+ *
+ * A diff against the base branch's TIP is only right when that tip is the fork
+ * point. Otherwise everything the base branch did since the fork shows up as
+ * the pull request's doing — upstream additions read as its deletions, and a
+ * C3 "test file deleted" fires on a change that touched no test. So the diff
+ * is taken against the merge base: the one the caller supplied, or the one
+ * git finds, deepening a shallow history twice to find it. When there is still
+ * none, the two-dot list is returned marked `unreliable`, and the change-based
+ * checks abstain rather than guess.
+ */
+export async function changedFilesDetailed(
+  workDir: string,
+  pr: PullRequestFacts,
+  notes: string[],
+): Promise<ChangeList> {
+  if (pr.baseSha === '' && pr.mergeBaseSha === undefined) return { files: [], unreliable: false };
+  const head7 = pr.headSha.slice(0, 7);
+
+  let mergeBase: string | undefined;
+  if (pr.mergeBaseSha !== undefined && pr.mergeBaseSha !== '') {
+    await ensureCommit(workDir, pr.mergeBaseSha, 'merge base');
+    mergeBase = pr.mergeBaseSha;
+  } else {
+    await ensureCommit(workDir, pr.baseSha, 'base');
+    mergeBase = await mergeBaseOf(workDir, pr.baseSha, pr.headSha);
+    for (const depth of [100, 500]) {
+      if (mergeBase !== undefined) break;
+      core.info(`diff: no merge base between ${pr.baseSha.slice(0, 7)} and ${head7}; deepening history by ${depth}`);
+      await git(workDir, 'fetch', '--no-tags', `--deepen=${depth}`, 'origin', pr.baseSha, pr.headSha);
+      mergeBase = await mergeBaseOf(workDir, pr.baseSha, pr.headSha);
+    }
+  }
+
+  const against = mergeBase ?? pr.baseSha;
+  const nameStatus = await git(workDir, 'diff', '--name-status', '-M', against, pr.headSha);
+  if (nameStatus.code !== 0) {
+    const note = `diff: could not compare ${against.slice(0, 7)} with ${head7}; the change-based checks did not run`;
+    core.warning(note);
+    notes.push(note);
+    return { files: [], unreliable: false };
+  }
+  const patches = await git(workDir, 'diff', '--unified=0', '-M', against, pr.headSha);
+  const files = parseNameStatus(nameStatus.stdout, patches.code === 0 ? patches.stdout : '');
+
+  if (mergeBase === undefined) {
+    const note = `diff: no merge base between ${pr.baseSha.slice(0, 7)} and ${head7} (shallow checkout?); the change-based checks did not run — check out with fetch-depth: 0`;
+    core.warning(note);
+    notes.push(note);
+    return { files, unreliable: true };
+  }
+  return { files, unreliable: false, mergeBase };
+}
+
+/** The change list alone; see `changedFilesDetailed`. */
 export async function changedFiles(
   workDir: string,
   pr: PullRequestFacts,
   notes: string[],
 ): Promise<ChangedFile[]> {
-  if (pr.baseSha === '') return [];
-
-  const present = await git(workDir, 'cat-file', '-e', `${pr.baseSha}^{commit}`);
-  if (present.code !== 0) {
-    core.info(`diff: base ${pr.baseSha.slice(0, 7)} not present locally, fetching`);
-    await git(workDir, 'fetch', '--no-tags', '--depth=1', 'origin', pr.baseSha);
-  }
-
-  // `base...head` is the right comparison (changes on the branch only), but it
-  // needs a merge base, which a shallow fetch does not provide; a two-dot diff
-  // is the honest fallback.
-  for (const range of [`${pr.baseSha}...${pr.headSha}`, `${pr.baseSha} ${pr.headSha}`]) {
-    const args = range.split(' ');
-    const nameStatus = await git(workDir, 'diff', '--name-status', '-M', ...args);
-    if (nameStatus.code !== 0) continue;
-    const patches = await git(workDir, 'diff', '--unified=0', '-M', ...args);
-    return parseNameStatus(nameStatus.stdout, patches.code === 0 ? patches.stdout : '');
-  }
-
-  const note = `diff: could not compare ${pr.baseSha.slice(0, 7)}...${pr.headSha.slice(0, 7)}; the change-based checks did not run`;
-  core.warning(note);
-  notes.push(note);
-  return [];
+  return (await changedFilesDetailed(workDir, pr, notes)).files;
 }
 
 // ---------------------------------------------------------------------------
@@ -693,21 +752,26 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
 
   // The changed files are needed before the run: in a workspace whose root has
   // no test command, the packages this PR touches are what gets tested.
-  const changed = pr.baseSha === '' ? [] : await changedFiles(workDir, pr, notes);
-  const packages = workspacePackages(workDir, changed);
+  const change: ChangeList =
+    pr.baseSha === '' && pr.mergeBaseSha === undefined
+      ? { files: [], unreliable: false }
+      : await changedFilesDetailed(workDir, pr, notes);
+  const packages = workspacePackages(workDir, change.files);
 
   const operatorCommand =
     opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
   let claimedCommand: string | undefined;
+  let claimedPaths: string[] = [];
   if (operatorCommand === undefined && opts.preferClaimedCommand === true) {
     const claimed = claims.find(
-      (c): c is typeof c & { parsed: { kind: 'command'; runner: string; raw: string } } =>
+      (c): c is typeof c & { parsed: { kind: 'command'; runner: string; raw: string; paths: string[] } } =>
         c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown',
     );
     if (claimed !== undefined) {
       const stripped = withoutInstallSteps(claimed.parsed.raw);
       if (stripped !== '') {
         claimedCommand = stripped;
+        claimedPaths = claimed.parsed.paths;
         const note = `runner: running the command the PR claimed (${claimed.id}): \`${claimedCommand}\``;
         core.info(note);
         notes.push(note);
@@ -724,9 +788,12 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
   if (operatorCommand !== undefined) {
     detected = root;
   } else if (claimedCommand !== undefined) {
+    // A claimed command that names paths (`vitest --run components/x`) is meant
+    // for the package where those paths exist, not every touched package.
+    const holding = packagesHoldingPaths(workDir, packages, claimedPaths);
     detected =
       root === null && packages.length > 0
-        ? detectWorkspaceCommand({ explicit: claimedCommand, rootFiles: files, packages })
+        ? detectWorkspaceCommand({ explicit: claimedCommand, rootFiles: files, packages: holding })
         : detectTestCommand({ explicit: claimedCommand, files });
   } else {
     detected = root ?? (packages.length > 0 ? detectWorkspaceCommand({ rootFiles: files, packages }) : null);
@@ -766,13 +833,16 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
         core.info(`baseline: the head run failed (exit ${observed.exitCode}) — running the same command at base ${pr.baseSha.slice(0, 7)}`);
         const baseline = await runBaseline(detected, workDir, pr, files, notes, {
           ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
+          // Compare at the fork point when it is known: the base tip may carry
+          // unrelated newer changes that would muddy the attribution.
+          baseSha: pr.mergeBaseSha ?? change.mergeBase ?? pr.baseSha,
         });
         if (baseline !== undefined) observed = { ...observed, baseline };
       }
     }
   }
 
-  const diff = await collectDiff(workDir, pr, policy, notes, changed);
+  const diff = await collectDiff(workDir, pr, policy, notes, change);
 
   const { discrepancies, verdict, unverifiable } = reconcile({ pr, claims, observed, diff, policy });
   const receipt = buildReceipt({ pr, agent, claims, observed, diff, discrepancies, verdict, policy });
@@ -813,6 +883,27 @@ export function workspacePackages(workDir: string, changed: readonly ChangedFile
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
     .map(([dir]) => ({ dir, files: readManifests(join(workDir, dir)) }));
+}
+
+/** Strip the selector syntax a claimed path may carry: `./pkg/...`, `tests/**`. */
+function selectorPath(selector: string): string {
+  return selector.trim().replace(/^\.\//, '').replace(/\/?(?:\.\.\.|\*\*)$/, '').replace(/\/$/, '');
+}
+
+/**
+ * The packages in which every claimed path exists — the ones a claimed
+ * `vitest --run components/x` can mean. With no paths, or none found anywhere,
+ * every package stays in: the paths may be relative to the root.
+ */
+export function packagesHoldingPaths(
+  workDir: string,
+  packages: WorkspacePackage[],
+  claimedPaths: readonly string[],
+): WorkspacePackage[] {
+  const paths = claimedPaths.map(selectorPath).filter((p) => p !== '' && p !== '.');
+  if (paths.length === 0) return packages;
+  const holding = packages.filter((pkg) => paths.every((p) => existsSync(join(workDir, pkg.dir, p))));
+  return holding.length > 0 ? holding : packages;
 }
 
 /** Manifests whose change between base and head means base needs its own install. */
@@ -864,9 +955,9 @@ export async function runBaseline(
   pr: PullRequestFacts,
   headFiles: Record<string, string | undefined>,
   notes: string[],
-  options: { skipInstall?: boolean } = {},
+  options: { skipInstall?: boolean; baseSha?: string } = {},
 ): Promise<BaselineRun | undefined> {
-  const sha = pr.baseSha;
+  const sha = options.baseSha ?? pr.baseSha;
   const short = sha.slice(0, 7);
   const giveUp = (reason: string): undefined => {
     const note = `baseline: ${reason}; the head failure could not be compared against base ${short}`;

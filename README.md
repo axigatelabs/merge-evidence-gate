@@ -58,8 +58,10 @@ jobs:
           test-command: 'go test ./...'
 ```
 
-`fetch-depth: 0` matters: the gate needs the base commit to compare test sets and
-classify the diff.
+`fetch-depth: 0` matters: the gate diffs against the commit the pull request
+forked from, which needs history. With a shallow checkout it asks the GitHub
+API for that commit instead; if neither is available, the change-based checks
+abstain rather than read the base branch's own changes as the pull request's.
 
 ### 2. Make it a required check
 
@@ -116,6 +118,7 @@ Agent pull requests can now no longer merge on a claim alone.
 | C6 | Snapshot or golden files updated | needs human |
 | C7 | A ticked "I have added tests" box while the diff touches no test file | needs human |
 | C8 | Files changed outside what the description covers | info |
+| C9 | Tests that pass at the base commit fail at head — failures this pull request introduced, whatever it claimed | needs human |
 
 Each claim ends as **Confirmed**, **Unsupported**, or **Contradicted**. Only
 Contradicted raises a discrepancy; a claim the gate cannot check is never counted

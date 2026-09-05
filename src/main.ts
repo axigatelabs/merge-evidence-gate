@@ -35,6 +35,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 
 import {
+  fetchMergeBase,
   listCommitMessages,
   parseRepo,
   upsertStickyComment,
@@ -267,6 +268,16 @@ export async function run(): Promise<void> {
       core.warning(`commits: could not list this PR's commits (${commits.error}) — co-author trailers were not read`);
     }
     pr.commitMessages = commits.messages;
+    // The payload's base sha is the base branch's tip, not the fork point. The
+    // pipeline finds the merge base locally when the history is there; on a
+    // shallow checkout this is what keeps the diff the pull request's own.
+    if (pr.baseSha !== '') {
+      const mergeBase = await fetchMergeBase(octokit, ref, pr.baseSha, pr.headSha);
+      if (mergeBase !== undefined) {
+        pr.mergeBaseSha = mergeBase;
+        if (mergeBase !== pr.baseSha) core.info(`diff: merge base ${mergeBase.slice(0, 7)} (base tip ${pr.baseSha.slice(0, 7)})`);
+      }
+    }
   }
 
   // The policy is read before the agent gate so a repository can turn
