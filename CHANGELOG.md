@@ -9,6 +9,34 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
+## 0.9.0 — 2026-09-05
+
+### Added
+
+- `fail-on: never` — report only. The comment, job summary, `receipt.json`
+  artifact and outputs are produced as before, and no verdict fails the job;
+  for running the gate advisory-only before making it a required check.
+- node's built-in test runner (`node --test`, `tsx --test`) is a runner family
+  of its own, `node-test`, with per-test evidence. The junit reporter is
+  attached through `NODE_OPTIONS`, which reaches the runner through `npm test`,
+  `make test` and workspace packages alike, and is inherited by the per-file
+  child processes without clobbering the report. Ids are
+  `<file>::<describe path joined with ' > '>`, the file relative to the
+  repository. A script that sets its own `--test-reporter` without a
+  `--test-reporter-destination` cannot take a second reporter: the receipt says
+  so and the run counts as no evidence, never as a pass; a directly written
+  command gets the missing `stdout` destination inserted.
+- `node --test` is a command claim (`claims[].parsed.runner: "node-test"`), and
+  a claimed `npm test` / `pnpm test` maps onto a node-test run for C1.
+- Runner adapters receive the directory the tests ran in (`ParseOptions.cwd`,
+  symlinks resolved), so a reporter that writes absolute paths yields the same
+  ids on every machine.
+
+### Changed
+
+- A `NODE_OPTIONS` already set in the environment is kept and extended, never
+  replaced, when the gate adds its own flags.
+
 ## 0.8.1 — 2026-09-05
 
 ### Changed

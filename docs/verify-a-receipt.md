@@ -118,6 +118,23 @@ jq -r '.testResults[] | .name as $f | .assertionResults[] | $f + "::" + .fullNam
   | node digest.mjs
 ```
 
+**node's built-in runner (junit reporter)** — `<file>::<describe path>`, the
+file relative to the repository and the `describe` blocks joined with ` > `:
+
+```bash
+NODE_OPTIONS="--test-reporter=junit --test-reporter-destination=/tmp/node-junit.xml" npm test
+python3 - <<'PY' | node digest.mjs
+import os, xml.etree.ElementTree as ET
+root = os.getcwd()
+def walk(node, suites):
+    for tc in node.findall('testcase'):
+        print(f"{os.path.relpath(tc.get('file'), root)}::{' > '.join(suites + [tc.get('name')])}")
+    for suite in node.findall('testsuite'):
+        walk(suite, suites + [suite.get('name')])
+walk(ET.parse('/tmp/node-junit.xml').getroot(), [])
+PY
+```
+
 **pytest / cargo-nextest (JUnit XML)** — `<file>::<name>`, falling back to
 `<classname>::<name>` when the reporter emits no `file` attribute:
 

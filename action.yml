@@ -19,7 +19,7 @@ inputs:
     required: false
     default: 'true'
   fail-on:
-    description: 'Verdict at or above which the job fails: "fail" (default) or "needs-human".'
+    description: 'Verdict at or above which the job fails: "fail" (default), "needs-human", or "never" — report only: the comment, job summary, artifact and outputs are still produced, and no verdict fails the job.'
     required: false
     default: 'fail'
   base-comparison:

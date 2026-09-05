@@ -178,6 +178,7 @@ describe('extractClaims — command grammar', () => {
     ['`make test`', 'make'],
     ['`vitest run test/claims`', 'vitest'],
     ['`jest --ci`', 'jest'],
+    ['`node --test test/`', 'node-test'],
     ['`./gradlew check`', 'unknown'],
     ['`mvn -q verify`', 'unknown'],
     ['`dotnet test`', 'unknown'],

@@ -62,6 +62,7 @@ const COMMAND_PREFIXES: ReadonlyArray<readonly [prefix: string, runner: RunnerFa
   ['python -m pytest', 'pytest'],
   ['pytest', 'pytest'],
   ['go test', 'go'],
+  ['node --test', 'node-test'],
   ['npm run test', 'npm'],
   ['npm test', 'npm'],
   ['pnpm test', 'npm'],

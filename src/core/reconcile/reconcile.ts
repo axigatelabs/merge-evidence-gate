@@ -116,8 +116,8 @@ function selectorMatches(selector: string, testIds: readonly string[]): boolean 
   return testIds.some((id) => id === path || id.startsWith(path));
 }
 
-/** Runner families a package script resolves to: `pnpm test` → vitest, jest, or an opaque script. */
-const NODE_SCRIPT_RUNNERS: ReadonlySet<ObservedRun['runner']> = new Set(['jest', 'vitest', 'npm']);
+/** Runner families a package script resolves to: `pnpm test` → vitest, jest, node's runner, or an opaque script. */
+const NODE_SCRIPT_RUNNERS: ReadonlySet<ObservedRun['runner']> = new Set(['jest', 'vitest', 'node-test', 'npm']);
 
 /**
  * The package-manager invocation a command makes, reduced to its first two

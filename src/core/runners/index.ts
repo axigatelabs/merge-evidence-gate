@@ -8,16 +8,18 @@
  * strings; everything here is a function of those strings.
  */
 import { createHash } from 'node:crypto';
-import type { ExecutedTest, ObservedRun, RunnerAdapter, RunnerFamily } from '../types.js';
+import type { ExecutedTest, ObservedRun, ParseOptions, RunnerAdapter, RunnerFamily } from '../types.js';
 import { countTotals, goAdapter } from './adapters/go.js';
 import { jestAdapter, vitestAdapter } from './adapters/jest.js';
 import { junitAdapter, pytestAdapter } from './adapters/junit.js';
+import { nodeTestAdapter } from './adapters/node-test.js';
 
 export { detectTestCommand, detectWorkspaceCommand, MAX_WORKSPACE_PACKAGES, REPORT_DIR, REPORT_PATHS } from './detect.js';
 export type { DetectedCommand, DetectInput, WorkspaceDetectInput, WorkspacePackage } from './detect.js';
 export { goAdapter, parseGoTestJson } from './adapters/go.js';
 export { junitAdapter, pytestAdapter, parseJUnitXml } from './adapters/junit.js';
 export { jestAdapter, vitestAdapter, parseJestJson } from './adapters/jest.js';
+export { nodeTestAdapter, parseNodeTestJUnit } from './adapters/node-test.js';
 
 /**
  * Adapter per runner family. `undefined` means the family produces no per-test
@@ -32,6 +34,7 @@ export const adapters: Record<RunnerFamily, RunnerAdapter | undefined> = {
   pytest: pytestAdapter,
   jest: jestAdapter,
   vitest: vitestAdapter,
+  'node-test': nodeTestAdapter,
   junit: junitAdapter,
   cargo: undefined,
   make: undefined,
@@ -49,12 +52,13 @@ export const adapters: Record<RunnerFamily, RunnerAdapter | undefined> = {
 export function normalize(
   family: RunnerFamily,
   raw: string,
+  options: ParseOptions = {},
 ): { tests: ExecutedTest[]; totals: ObservedRun['totals'] } {
   const adapter = adapters[family];
   if (adapter === undefined) {
     throw new Error(`no runner adapter for family '${family}': no machine-readable output to parse`);
   }
-  const { tests } = adapter.parse(raw);
+  const { tests } = adapter.parse(raw, options);
   const sorted = [...tests].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return { tests: sorted, totals: countTotals(sorted) };
 }

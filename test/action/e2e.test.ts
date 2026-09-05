@@ -12,7 +12,7 @@
  * (its `node_modules` is symlinked in), so the suite stays hermetic.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as exec from '@actions/exec';
@@ -29,7 +29,7 @@ import {
   renderComment,
 } from '../../src/core/reconcile/index.js';
 import { detectTestCommand, normalize } from '../../src/core/runners/index.js';
-import type { ObservedRun, PullRequestFacts, Receipt, RenderedComment } from '../../src/core/types.js';
+import type { ObservedRun, PullRequestFacts, Receipt, RenderedComment, RunnerFamily } from '../../src/core/types.js';
 
 /** Vitest runs from the repository root, as the other suites here assume. */
 const REPO_ROOT = process.cwd();
@@ -226,11 +226,12 @@ interface PipelineResult {
 async function runPipeline(
   dir: string,
   pr: PullRequestFacts,
+  expectedFamily: RunnerFamily = 'vitest',
 ): Promise<PipelineResult> {
   const detected = detectTestCommand({ files: readManifests(dir) });
   expect(detected).not.toBeNull();
   if (detected === null) throw new Error('unreachable');
-  expect(detected.family).toBe('vitest');
+  expect(detected.family).toBe(expectedFamily);
 
   mkdirSync(join(dir, '.merge-evidence'), { recursive: true });
   let stdout = '';
@@ -245,7 +246,7 @@ async function runPipeline(
   const durationMs = Date.now() - started;
 
   const raw = readReport(join(dir, detected.reportPath)) ?? stdout;
-  const { tests, totals } = normalize(detected.family, raw);
+  const { tests, totals } = normalize(detected.family, raw, { cwd: realpathSync(dir) });
 
   const observed: ObservedRun = {
     command: detected.command,
@@ -395,5 +396,103 @@ describe('end to end: an honest agent PR', () => {
     expect(result.rendered.markdown).toContain(result.rendered.marker);
     expect(result.rendered.markdown).toContain('PASS');
     expect(Buffer.byteLength(result.rendered.markdown, 'utf8')).toBeLessThanOrEqual(MAX_COMMENT_BYTES);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// node's built-in test runner: no dependencies, reporter through NODE_OPTIONS
+// ---------------------------------------------------------------------------
+
+const NODE_PACKAGE_JSON = `${JSON.stringify(
+  { name: 'demo-node-test', private: true, type: 'module', scripts: { test: 'node --test' } },
+  null,
+  2,
+)}\n`;
+
+const NODE_MATH_TESTS = `import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { add, sub } from '../src/math.js';
+
+describe('math', () => {
+  test('adds', () => { assert.equal(add(1, 2), 3); });
+  test('subtracts', () => { assert.equal(sub(2, 1), 1); });
+});
+test('top level: adds negatives', () => { assert.equal(add(-1, -2), -3); });
+`;
+
+const NODE_BODY = `## Summary
+
+Adds \`mul\` to \`src/math.js\`, with a test in \`test/math.test.js\`.
+
+## Test plan
+
+- [x] \`npm test\` — 4 tests, 0 failures
+${CLAUDE_FOOTER}`;
+
+function createNodeTestRepo(): { dir: string; baseSha: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'meg-e2e-node-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 'agent@example.test');
+  git(dir, 'config', 'user.name', 'Demo Agent');
+  git(dir, 'config', 'commit.gpgsign', 'false');
+  write(dir, '.gitignore', '.merge-evidence/\n');
+  write(dir, 'package.json', NODE_PACKAGE_JSON);
+  write(dir, 'src/math.js', MATH_SOURCE);
+  write(dir, 'test/math.test.js', NODE_MATH_TESTS);
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'base: math helpers tested with node --test');
+  return { dir, baseSha: git(dir, 'rev-parse', 'HEAD').trim() };
+}
+
+function applyNodeHonestChange(dir: string): string {
+  write(
+    dir,
+    'test/math.test.js',
+    NODE_MATH_TESTS.replace("import { add, sub } from '../src/math.js';", "import { add, sub, mul } from '../src/math.js';").replace(
+      "  test('subtracts', () => { assert.equal(sub(2, 1), 1); });\n",
+      "  test('subtracts', () => { assert.equal(sub(2, 1), 1); });\n  test('multiplies', () => { assert.equal(mul(2, 3), 6); });\n",
+    ),
+  );
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'math: test mul');
+  return git(dir, 'rev-parse', 'HEAD').trim();
+}
+
+describe("end to end: a PR tested with node's built-in runner", () => {
+  let dir: string;
+  let result: PipelineResult;
+
+  beforeAll(async () => {
+    const repo = createNodeTestRepo();
+    dir = repo.dir;
+    const headSha = applyNodeHonestChange(dir);
+    result = await runPipeline(dir, facts({ headSha, baseSha: repo.baseSha, body: NODE_BODY }), 'node-test');
+  }, E2E_TIMEOUT_MS);
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('runs the package script unchanged, with the junit reporter attached through the environment', () => {
+    expect(result.observed.command).toBe('npm test');
+    expect(result.observed.runner).toBe('node-test');
+    expect(result.observed.exitCode).toBe(0);
+  });
+
+  it('enumerates every test with a repository-relative id and the describe path', () => {
+    expect(result.observed.tests.map((t) => t.id)).toEqual([
+      'test/math.test.js::math > adds',
+      'test/math.test.js::math > multiplies',
+      'test/math.test.js::math > subtracts',
+      'test/math.test.js::top level: adds negatives',
+    ]);
+    expect(result.observed.totals).toEqual({ run: 4, passed: 4, failed: 0, skipped: 0, retried: 0 });
+  });
+
+  it('maps the claimed `npm test` onto the run and confirms the count', () => {
+    expect(result.unverifiable).toEqual([]);
+    expect(result.receipt.discrepancies).toEqual([]);
+    expect(result.receipt.verdict).toBe('PASS');
+    expect(result.rendered.markdown).toContain('- `npm test` — ran ✔  4/4 pass');
   });
 });

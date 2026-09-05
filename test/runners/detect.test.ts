@@ -219,7 +219,7 @@ describe('detectTestCommand — package.json scripts.test', () => {
   });
 
   it('marks an unknown node test script as opaque', () => {
-    const pkg = JSON.stringify({ scripts: { test: 'node --test' } });
+    const pkg = JSON.stringify({ scripts: { test: 'bash scripts/run-tests.sh' } });
     const result = detect({ 'package.json': pkg, 'package-lock.json': '{}' });
     expect(result?.family).toBe('npm');
     expect(result?.command).toBe('npm test');

@@ -151,6 +151,7 @@ Every run also gets `CI=1`, `TZ=UTC`, `LANG=C.UTF-8`.
 | pytest behind a wrapper | the wrapper unchanged, with those same flags in `PYTEST_ADDOPTS` | `.merge-evidence/pytest-junit.xml` |
 | Jest | `<your command> --json --outputFile=.merge-evidence/jest-results.json --ci`, plus `FORCE_COLOR=0` | `.merge-evidence/jest-results.json` |
 | Vitest | `<your command> --reporter=json --outputFile=.merge-evidence/vitest-results.json`, plus `FORCE_COLOR=0` | `.merge-evidence/vitest-results.json` |
+| node's built-in runner (`node --test`, `tsx --test`) | unchanged, with `NODE_OPTIONS=--test-reporter=junit --test-reporter-destination=.merge-evidence/node-test-junit.xml` in the environment — it reaches the runner through `npm test`, `make test` and workspace packages alike | `.merge-evidence/node-test-junit.xml` |
 | cargo-nextest | `<your command> --profile ci`, plus `NEXTEST_PROFILE=ci` | `target/nextest/ci/junit.xml` |
 | plain `cargo test` | unchanged — no per-test output exists; the receipt records a note | `.merge-evidence/cargo-test.txt` |
 | anything else | unchanged; the receipt records that per-test evidence is unavailable | `.merge-evidence/test-output.txt` |
@@ -164,6 +165,14 @@ nextest only writes JUnit when the repository has a `ci` profile configured —
 `[profile.ci.junit] path = "junit.xml"` in `.config/nextest.toml`. Without it the
 gate says so on the receipt rather than reporting an empty run.
 
+node's runner accepts a second reporter only when every reporter has a
+destination. A `test` script that sets its own `--test-reporter` must therefore
+pair it with a `--test-reporter-destination` (`stdout` is fine); until it does,
+the receipt says the reporter could not be attached and the run counts as no
+evidence, never as a pass. A command written directly (the `test-command`
+input, `.merge-evidence.yml`, a claimed `node --test`) gets that destination
+inserted for it.
+
 ### How the command is chosen
 
 First hit wins (`detectTestCommand` in `src/core/runners/detect.ts`):
@@ -173,7 +182,8 @@ First hit wins (`detectTestCommand` in `src/core/runners/detect.ts`):
 3. the `test` target in a `Makefile`;
 4. `scripts.test` in `package.json` — invoked through the package manager implied
    by the lockfile present (`pnpm-lock.yaml` → `pnpm test`, `yarn.lock` →
-   `yarn test`, `bun.lockb` → `bun run test`, otherwise `npm test --`);
+   `yarn test`, `bun.lockb` → `bun run test`, otherwise `npm test --`), whether
+   the script runs Vitest, Jest or node's built-in runner;
 5. `go.mod` → `go test ./...`;
 6. `pyproject.toml`, `pytest.ini`, or `setup.cfg` → `pytest`;
 7. `Cargo.toml` → `cargo nextest run` when `.config/nextest.toml` exists,
@@ -199,7 +209,7 @@ All optional. Defaults are from [`action.yml`](action.yml).
 | `github-token` | `${{ github.token }}` | Token used to read the pull request and post the receipt comment. |
 | `test-command` | *(empty)* | Explicit test command. Overrides every form of detection. |
 | `agents-only` | `true` | Only run when the pull request looks agent-authored. `false` gates every pull request. |
-| `fail-on` | `fail` | Verdict at or above which the job fails. `fail` fails only on `FAIL`; `needs-human` also fails on `NEEDS_HUMAN`. |
+| `fail-on` | `fail` | Verdict at or above which the job fails. `fail` fails only on `FAIL`; `needs-human` also fails on `NEEDS_HUMAN`; `never` keeps the job green whatever the verdict — the comment, job summary, artifact and outputs still carry it — for running the gate advisory-only before making it a required check. |
 | `base-comparison` | `auto` | When the head run fails, re-run the same command at the base commit so failures the repository already had are not counted against the pull request. `never` skips that run. |
 | `comment` | `true` | Post and update the sticky receipt comment. |
 | `upload-receipt` | `true` | Upload `receipt.json` as a workflow artifact. |
@@ -442,15 +452,15 @@ nothing is a pull request a reviewer knows to read carefully.
 
 ## Status
 
-Version 0.8.1, on `main`, listed on the
+Version 0.9.0, on `main`, listed on the
 [GitHub Marketplace](https://github.com/marketplace/actions/merge-evidence-gate).
 The `v1` tag moves with each release. The Action runs with a token that can
 write pull-request comments, so if you want a fixed version, pin a commit SHA
 (`uses: axigatelabs/merge-evidence-gate@<sha>`) and move it deliberately.
 
 What is in the box: agent detection, claim extraction, test-command detection
-and reporter injection, runner adapters for Go, pytest, Jest, Vitest, `cargo
-test` and cargo-nextest (plus `make`, npm/pnpm/yarn, uv, poetry and similar
+and reporter injection, runner adapters for Go, pytest, Jest, Vitest, node's
+built-in test runner, `cargo test` and cargo-nextest (plus `make`, npm/pnpm/yarn, uv, poetry and similar
 wrappers around them), diff analysis, base-commit comparison, the reconcile
 step, and the receipt and comment renderers (`src/core/`). Any other test
 command still runs, but yields no per-test evidence: the receipt says so and
