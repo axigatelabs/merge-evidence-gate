@@ -61,8 +61,8 @@ Agents have no intent; nothing here says "lie". A claim is *not reproduced*,
 <!-- summarize:begin -->
 | Repository | PRs | Run inconclusive | Verdicts | Checkable claims | Confirmed | Unsupported | Contradicted | Stated, not checkable | PRs flagged | Checks fired |
 |---|---:|---:|---|---:|---:|---:|---:|---:|---:|---|
-| mastra-ai/mastra (devin:40) | 40 | 0 | FAIL:1 PASS:39 | 13 | 77% | 15% | 8% | 226 | 1 | C1:1 C8:23 |
-| **All** | 40 | 0 | FAIL:1 PASS:39 | 13 | 77% | 15% | 8% | 226 | 1 | C1:1 C8:23 |
+| mastra-ai/mastra (devin:40) | 40 | 0 | PASS:40 | 13 | 77% | 23% | 0% | 226 | 0 | C8:23 |
+| **All** | 40 | 0 | PASS:40 | 13 | 77% | 23% | 0% | 226 | 0 | C8:23 |
 
 - **Run inconclusive**: the re-run produced no per-test evidence (the sandbox killed the runner, or a toolchain is missing), so command and count claims are unsupported. Diff-based findings still count; NEUTRAL is the verdict when nothing else fired.
 - **Checkable**: command and count claims, and a ticked "tests added" box — the claims a rule can confirm or contradict against the re-run or the diff.
@@ -87,19 +87,22 @@ tests") describe one package while the gate ran the whole monorepo, so they
 are **unsupported** — deliberately, since the run's totals say nothing about
 that subset.
 
-The one **contradicted** claim, and the one flagged PR, is `pnpm test` on
-#22963: the clean re-run exited 1 with 203 failing tests. Read this with the
-caveat above. The same failures appear on every mastra re-run in the sample —
-between 162 and 206 per run, dominated by package-import and network-dependent
-tests that cannot pass with the network off — so this is "not reproduced on a
-clean runner", not evidence that the claim was false. This row was produced by
-0.2.0; 0.3.0 added base-commit comparison, which re-runs the command at the
-base and attributes only introduced failures to the PR — the re-run of #22963
-under 0.3.0 is recorded below.
+The one command claim, `pnpm test` on #22963, is the case base-commit
+comparison exists for. The clean re-run at head exited 1 with 203 failing
+tests; the gate then ran the same command at the base commit (ffc6440), where
+the same 203 tests fail — package-import and network-dependent tests that
+cannot pass with the network off, and that every mastra re-run in the sample
+shows in the same band (162 to 206 per run). Nothing was introduced by the PR,
+so the claim is reported **unsupported** ("not reproduced on a clean runner")
+and the receipt records the base facts under `observed.baseline`. Under 0.2.0,
+before the comparison existed, this row was a C1 contradiction; that is the
+false positive the feature removes. No PR in the sample is flagged.
 
 No PR in the sample deleted, skipped, or focused a test, edited CI, or touched a
 lockfile without saying so. The 23 scope notes (C8, informational) are
-changeset files and build configs the bodies do not name.
+changeset files and build configs the bodies do not name. Cost of the
+comparison on this repository: one extra 87-second run for the one PR whose
+head run failed with a command claim; the other 39 were not re-run.
 
 ## Reading the numbers honestly
 
