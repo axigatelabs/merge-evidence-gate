@@ -20,7 +20,7 @@
  * counted against the PR.
  */
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import * as core from '@actions/core';
 import * as exec from '@actions/exec';
@@ -46,9 +46,11 @@ import { hasNoEvidence } from './core/reconcile/reconcile.js';
 import {
   adapters,
   detectTestCommand,
+  detectWorkspaceCommand,
   normalize,
   REPORT_DIR,
   type DetectedCommand,
+  type WorkspacePackage,
 } from './core/runners/index.js';
 import type {
   AgentDetection,
@@ -550,8 +552,9 @@ export async function collectDiff(
   pr: PullRequestFacts,
   policy: Policy,
   notes: string[],
+  changed?: ChangedFile[],
 ): Promise<DiffAnalysis> {
-  const files = await changedFiles(workDir, pr, notes);
+  const files = changed ?? (await changedFiles(workDir, pr, notes));
   core.info(`diff: ${files.length} changed file(s)`);
   return {
     ...analyzeDiff(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
@@ -674,8 +677,15 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
   const claims = extractClaims(pr);
   core.info(`claims: ${claims.length} extracted from the PR body`);
 
-  let explicit = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
-  if (explicit === undefined && opts.preferClaimedCommand === true) {
+  // The changed files are needed before the run: in a workspace whose root has
+  // no test command, the packages this PR touches are what gets tested.
+  const changed = pr.baseSha === '' ? [] : await changedFiles(workDir, pr, notes);
+  const packages = workspacePackages(workDir, changed);
+
+  const operatorCommand =
+    opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
+  let claimedCommand: string | undefined;
+  if (operatorCommand === undefined && opts.preferClaimedCommand === true) {
     const claimed = claims.find(
       (c): c is typeof c & { parsed: { kind: 'command'; runner: string; raw: string } } =>
         c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown',
@@ -683,17 +693,30 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     if (claimed !== undefined) {
       const stripped = withoutInstallSteps(claimed.parsed.raw);
       if (stripped !== '') {
-        explicit = stripped;
-        const note = `runner: running the command the PR claimed (${claimed.id}): \`${explicit}\``;
+        claimedCommand = stripped;
+        const note = `runner: running the command the PR claimed (${claimed.id}): \`${claimedCommand}\``;
         core.info(note);
         notes.push(note);
       }
     }
   }
-  const detected = detectTestCommand({
-    ...(explicit === undefined ? {} : { explicit }),
-    files,
-  });
+
+  // Precedence: an operator/policy command runs at the root as written; a
+  // claimed command runs at the root when the root has a test command of its
+  // own, else inside the touched packages; otherwise the root's own command,
+  // else the touched packages' scripts.
+  const root = detectTestCommand({ ...(operatorCommand === undefined ? {} : { explicit: operatorCommand }), files });
+  let detected: DetectedCommand | null;
+  if (operatorCommand !== undefined) {
+    detected = root;
+  } else if (claimedCommand !== undefined) {
+    detected =
+      root === null && packages.length > 0
+        ? detectWorkspaceCommand({ explicit: claimedCommand, rootFiles: files, packages })
+        : detectTestCommand({ explicit: claimedCommand, files });
+  } else {
+    detected = root ?? (packages.length > 0 ? detectWorkspaceCommand({ rootFiles: files, packages }) : null);
+  }
 
   let observed: ObservedRun;
   if (detected === null) {
@@ -735,7 +758,7 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     }
   }
 
-  const diff = await collectDiff(workDir, pr, policy, notes);
+  const diff = await collectDiff(workDir, pr, policy, notes, changed);
 
   const { discrepancies, verdict, unverifiable } = reconcile({ pr, claims, observed, diff, policy });
   const receipt = buildReceipt({ pr, agent, claims, observed, diff, discrepancies, verdict, policy });
@@ -751,6 +774,31 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     notes,
     receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
   };
+}
+
+/**
+ * The workspace packages a change touches: for each changed path, the nearest
+ * ancestor directory — never the root — holding a `package.json`. Most-changed
+ * first, so a cap keeps the packages the pull request is mostly about. A
+ * package deleted by the change has no directory at head and is skipped.
+ */
+export function workspacePackages(workDir: string, changed: readonly ChangedFile[]): WorkspacePackage[] {
+  const counts = new Map<string, number>();
+  for (const file of changed) {
+    const path = file.path.replace(/\\/g, '/');
+    if (path.split('/').includes('node_modules')) continue;
+    let dir = dirname(path);
+    while (dir !== '.' && dir !== '' && dir !== '/') {
+      if (existsSync(join(workDir, dir, 'package.json'))) {
+        counts.set(dir, (counts.get(dir) ?? 0) + 1);
+        break;
+      }
+      dir = dirname(dir);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([dir]) => ({ dir, files: readManifests(join(workDir, dir)) }));
 }
 
 /** Manifests whose change between base and head means base needs its own install. */

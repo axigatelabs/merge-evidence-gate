@@ -174,7 +174,13 @@ First hit wins (`detectTestCommand` in `src/core/runners/detect.ts`):
 5. `go.mod` → `go test ./...`;
 6. `pyproject.toml`, `pytest.ini`, or `setup.cfg` → `pytest`;
 7. `Cargo.toml` → `cargo nextest run` when `.config/nextest.toml` exists,
-   otherwise `cargo test`.
+   otherwise `cargo test`;
+8. in a workspace whose root has none of the above (a turbo, nx or lerna
+   monorepo where every package runs its own suite), the `test` script of each
+   package the pull request touches, run from that package's directory — the
+   nearest `package.json` above each changed file, at most five packages, one
+   runner family per run. A command the body claims, such as `vitest`, runs
+   inside those packages too.
 
 If none of those exist, the gate abstains: verdict `NEUTRAL`, no failure. It does
 not guess.

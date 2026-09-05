@@ -13,8 +13,8 @@ import { countTotals, goAdapter } from './adapters/go.js';
 import { jestAdapter, vitestAdapter } from './adapters/jest.js';
 import { junitAdapter, pytestAdapter } from './adapters/junit.js';
 
-export { detectTestCommand, REPORT_DIR, REPORT_PATHS } from './detect.js';
-export type { DetectedCommand, DetectInput } from './detect.js';
+export { detectTestCommand, detectWorkspaceCommand, MAX_WORKSPACE_PACKAGES, REPORT_DIR, REPORT_PATHS } from './detect.js';
+export type { DetectedCommand, DetectInput, WorkspaceDetectInput, WorkspacePackage } from './detect.js';
 export { goAdapter, parseGoTestJson } from './adapters/go.js';
 export { junitAdapter, pytestAdapter, parseJUnitXml } from './adapters/junit.js';
 export { jestAdapter, vitestAdapter, parseJestJson } from './adapters/jest.js';
