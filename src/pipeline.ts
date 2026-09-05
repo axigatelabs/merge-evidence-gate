@@ -819,6 +819,11 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     };
   } else {
     await ensureHeadCheckout(workDir, pr.headSha, notes);
+    // Touched packages that carry their own lockfile are separate projects;
+    // the root install does not reach them.
+    if (opts.skipInstall !== true && packages.length > 0) {
+      await installPackageDependencies(workDir, packages, mergedEnv(detected.env), notes);
+    }
     observed = await runTests(detected, workDir, files, notes, {
       ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
     });
@@ -861,6 +866,52 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     notes,
     receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
   };
+}
+
+/**
+ * Install steps for touched packages that carry their own dependency tree — a
+ * repository that is several projects side by side (`backend/`, `frontend/`)
+ * rather than one workspace. A package with no lockfile of its own, or with
+ * a `node_modules` already in place, needs nothing.
+ */
+export function packageInstallPlans(
+  workDir: string,
+  packages: readonly WorkspacePackage[],
+): Array<{ dir: string; steps: Array<{ command: string; frozen: boolean }> }> {
+  const plans: Array<{ dir: string; steps: Array<{ command: string; frozen: boolean }> }> = [];
+  for (const pkg of packages) {
+    const files = pkg.files;
+    const ownLock =
+      files['package-lock.json'] !== undefined ||
+      files['pnpm-lock.yaml'] !== undefined ||
+      files['yarn.lock'] !== undefined ||
+      files['bun.lockb'] !== undefined ||
+      files['bun.lock'] !== undefined;
+    if (!ownLock) continue;
+    const steps = installPlan(join(workDir, pkg.dir), files).filter((step) => /^(?:npm|pnpm|yarn|bun)\b/.test(step.command));
+    if (steps.length > 0) plans.push({ dir: pkg.dir, steps });
+  }
+  return plans;
+}
+
+/** Run the per-package installs; a failure is a note, never a verdict. */
+export async function installPackageDependencies(
+  workDir: string,
+  packages: readonly WorkspacePackage[],
+  env: Record<string, string>,
+  notes: string[],
+): Promise<void> {
+  for (const plan of packageInstallPlans(workDir, packages)) {
+    for (const step of plan.steps) {
+      core.info(`install: ${step.command} (in ${plan.dir})`);
+      const result = await shell(step.command, { cwd: join(workDir, plan.dir), env });
+      if (result.code !== 0) {
+        const note = `dependencies: \`${step.command}\` in ${plan.dir} exited ${result.code}; that package's tests may not reflect a clean install`;
+        core.warning(note);
+        notes.push(note);
+      }
+    }
+  }
 }
 
 /**
@@ -1066,4 +1117,12 @@ export async function runBaseline(
 export async function installOnly(workDir: string, pr: PullRequestFacts, notes: string[]): Promise<void> {
   await ensureHeadCheckout(workDir, pr.headSha, notes);
   await installDependencies(workDir, readManifests(workDir), mergedEnv({}), notes);
+  // The packages this change touches may be separate projects with their own
+  // lockfiles (a `backend/` next to a `frontend/`); install those too, while
+  // the network is still on.
+  const change =
+    pr.baseSha === '' && pr.mergeBaseSha === undefined
+      ? { files: [], unreliable: false }
+      : await changedFilesDetailed(workDir, pr, notes);
+  await installPackageDependencies(workDir, workspacePackages(workDir, change.files), mergedEnv({}), notes);
 }

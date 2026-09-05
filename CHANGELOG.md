@@ -9,7 +9,18 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.7.0 — unreleased
+## 0.7.1 — unreleased
+
+### Changed
+
+- A touched package that carries its own lockfile — a repository that is
+  several projects side by side, such as Infisical's `backend/` and
+  `frontend/` — gets its own frozen install before the run; the root install
+  does not reach it. Every Infisical backend run in the study had failed with
+  `vitest: not found`. The offline CLI's `--install-only` phase installs those
+  packages too.
+
+## 0.7.0 — 2026-09-05
 
 ### Changed
 
