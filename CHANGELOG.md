@@ -9,7 +9,16 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.3.0 — unreleased
+## 0.3.1 — unreleased
+
+### Changed
+
+- Count claims are no longer read from quoted text or from a line that
+  compares runs (`observed`, `claimed`, `at base`, `at head`, `vs`,
+  `previously`). The gate's own pull requests, whose descriptions cite
+  numbers from other runs, had produced C2 findings against themselves.
+
+## 0.3.0 — 2026-09-05
 
 ### Added
 

@@ -262,6 +262,24 @@ describe('extractClaims — count grammar', () => {
     expect(claimsFor('68 tests, 0 failures')).toHaveLength(1);
   });
 
+  it('does not read a count inside quotation marks as a claim', () => {
+    expect(claimsFor('Before this an OOM-killed run reported "Claimed 1480 total; 0 observed".').filter((c) => c.kind === 'count')).toEqual([]);
+    expect(claimsFor('The log said \u201c12 tests, 0 failures\u201d but 3 tests are new.').map((c) => c.parsed)).toEqual([
+      { kind: 'count', total: 3 },
+    ]);
+  });
+
+  it('does not read counts on a line that compares runs or reports on another one', () => {
+    for (const line of [
+      'head 203 failures, base ffc6440 the same 203 failures',
+      'Observed 6 failures locally before the fix',
+      '412 tests at head vs 409 at base',
+      'Under 0.2.0 this was 1 failure',
+    ]) {
+      expect(claimsFor(line).filter((c) => c.kind === 'count'), line).toEqual([]);
+    }
+  });
+
   it('splits counts that are separated by prose', () => {
     const counts = claimsFor('The unit suite reported 68 passed but the e2e suite reported 3 failed.');
     expect(counts.map((c) => c.parsed)).toEqual([
