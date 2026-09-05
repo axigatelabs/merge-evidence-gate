@@ -310,7 +310,10 @@ export function installPlan(
   }
 
   if (files['uv.lock'] !== undefined) {
-    plan.push({ command: 'uv sync --locked', frozen: true });
+    // The lockfile pins every extra too; tests routinely import optional
+    // dependencies (litellm's conftest imports `prisma` from the proxy extra),
+    // so the frozen install takes all of them, as the repository's own CI does.
+    plan.push({ command: 'uv sync --locked --all-extras', frozen: true });
   } else if (files['pyproject.toml'] !== undefined) {
     plan.push({ command: 'pip install -e .', frozen: false });
   }
