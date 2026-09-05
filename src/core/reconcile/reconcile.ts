@@ -119,9 +119,16 @@ function selectorMatches(selector: string, testIds: readonly string[]): boolean 
 /** Runner families a package script resolves to: `pnpm test` → vitest, jest, or an opaque script. */
 const NODE_SCRIPT_RUNNERS: ReadonlySet<ObservedRun['runner']> = new Set(['jest', 'vitest', 'npm']);
 
-/** The first two words of an invocation; `npm run test` and `npm test` are the same one. */
+/**
+ * The package-manager invocation a command makes, reduced to its first two
+ * words: `npm run test -- --json` and `npm test` are the same one. The observed
+ * command may be a workspace composite (`f=0; (cd 'pkg' && pnpm test …) || f=1;
+ * …`); the invocation is the first package-manager call inside it.
+ */
 function scriptInvocation(command: string): string {
-  return command.trim().replace(/^npm\s+run\s+/, 'npm ').split(/\s+/).slice(0, 2).join(' ');
+  const call = /(?:^|[\s(;&|])((?:npm|pnpm|yarn|bun)\s+(?:run\s+)?[^\s;&|)]+)/.exec(command.trim());
+  const invocation = (call?.[1] ?? command.trim()).replace(/^(npm|pnpm|yarn|bun)\s+run\s+/, '$1 ');
+  return invocation.split(/\s+/).slice(0, 2).join(' ');
 }
 
 /** True when the observed run plausibly IS the run the claim describes. */

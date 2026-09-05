@@ -22,6 +22,12 @@ and renames or removals require `/v2`. See
   repository's PR template, not a claim, and is ignored.
 - A body that names the same command several times gets one line on the
   receipt, not one per mention.
+- The checkout's `node_modules/.bin` — and, inside a workspace package, the
+  package's own — is on PATH for the run, so a claimed bare `vitest` resolves
+  the way it does for a developer. supabase's apps/www test script had
+  failed with `vitest: not found`.
+- A claimed package script (`pnpm test:studio`) maps to the run when that
+  call appears inside a workspace composite command, not only at its start.
 - Study harness: phase 2 runs with `UV_NO_SYNC=1 UV_OFFLINE=1` so `uv run …`
   uses the environment synced in phase 1 instead of waiting on a dead network.
 

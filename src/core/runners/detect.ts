@@ -461,10 +461,14 @@ export function detectWorkspaceCommand(input: WorkspaceDetectInput): DetectedCom
   const chosen = sameFamily.slice(0, max);
   const beyondCap = sameFamily.slice(max);
 
+  // Inside the package, its own `node_modules/.bin` (and the root's) go on
+  // PATH: a claimed bare `vitest` is how developers write it, and it only
+  // resolves that way when a package manager or npx would have put it there.
   const command = [
     'f=0',
     ...chosen.map(
-      (part) => `(cd ${shellQuote(part.dir)} && mkdir -p ${REPORT_DIR} && ${part.detected.command}) || f=1`,
+      (part) =>
+        `(cd ${shellQuote(part.dir)} && export PATH="$PWD/node_modules/.bin:$PATH" && mkdir -p ${REPORT_DIR} && ${part.detected.command}) || f=1`,
     ),
     'exit "$f"',
   ].join('; ');

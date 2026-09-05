@@ -131,7 +131,7 @@ describe('evaluate in a workspace whose root has no test command', () => {
         policy: { ...DEFAULT_POLICY },
         preferClaimedCommand: true,
       });
-      expect(result.receipt?.observed.command).toContain("(cd 'packages/a' && mkdir -p .merge-evidence && vitest --reporter=json");
+      expect(result.receipt?.observed.command).toContain("(cd 'packages/a' && export PATH=\"$PWD/node_modules/.bin:$PATH\" && mkdir -p .merge-evidence && vitest --reporter=json");
       expect(result.receipt?.observed.totals.run).toBe(4);
       expect(result.notes.some((n) => n.includes('running the claimed command in 1 workspace package(s)'))).toBe(true);
       expect(result.verdict).toBe('PASS');
