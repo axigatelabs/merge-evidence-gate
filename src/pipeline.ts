@@ -19,6 +19,7 @@
  * may fail a run, and a claim the gate could not verify is reported, never
  * counted against the PR.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -51,6 +52,9 @@ import {
   REPORT_DIR,
   type DetectedCommand,
   type WorkspacePackage,
+  sniffReportFormat,
+  formatFamily,
+  type ReportFormat,
 } from './core/runners/index.js';
 import type {
   AgentDetection,
@@ -63,6 +67,7 @@ import type {
   PullRequestFacts,
   Receipt,
   RenderedComment,
+  RunnerFamily,
   Verdict,
 } from './core/types.js';
 
@@ -720,7 +725,27 @@ export interface EvaluateOptions {
    * counted against the PR. `never`: skip that run. Falls back to the policy.
    */
   baseComparison?: 'auto' | 'never';
+  /**
+   * Where the evidence about the run comes from. `run` (default): the gate
+   * runs the tests. `report`: it reads the report the repository's own test
+   * step already wrote at `paths` and runs nothing. `none`: no test evidence
+   * at all — the diff-based checks alone.
+   */
+  evidence?: EvidenceOptions;
 }
+
+export type EvidenceOptions =
+  | { kind: 'run' }
+  | {
+      kind: 'report';
+      /** Report files, relative to the work dir unless absolute. */
+      paths: string[];
+      /** `auto` (default) sniffs the content. */
+      format?: ReportFormat;
+      /** The command that produced the report, for the receipt and claim mapping. */
+      command?: string;
+    }
+  | { kind: 'none' };
 
 export interface EvaluateResult {
   /** Set when the PR was not gated at all; `receipt` and `rendered` are then absent. */
@@ -825,8 +850,18 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     detected = root ?? (packages.length > 0 ? detectWorkspaceCommand({ rootFiles: files, packages }) : null);
   }
 
+  const evidence: EvidenceOptions = opts.evidence ?? { kind: 'run' };
   let observed: ObservedRun;
-  if (detected === null) {
+  if (evidence.kind === 'none') {
+    const note = 'evidence: none — the test run was skipped by configuration; claims about the run are unverifiable';
+    core.info(note);
+    notes.push(note);
+    await ensureHeadCheckout(workDir, pr.headSha, notes);
+    observed = skippedObservation(workDir);
+  } else if (evidence.kind === 'report') {
+    await ensureHeadCheckout(workDir, pr.headSha, notes);
+    observed = observeFromReports(evidence, workDir, detected, notes);
+  } else if (detected === null) {
     const note = 'no test command could be detected — configure `test-command:` to enable the gate';
     core.warning(`runner: ${note}`);
     notes.push(note);
@@ -889,6 +924,123 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     unverifiable,
     notes,
     receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
+  };
+}
+
+/** The observation for `evidence: none`: nothing ran, by configuration. */
+export function skippedObservation(workDir: string): ObservedRun {
+  return {
+    command: '',
+    runner: 'none',
+    exitCode: 0,
+    durationMs: 0,
+    toolchain: probeToolchain(workDir),
+    totals: EMPTY_TOTALS,
+    tests: [],
+    noTestCommand: true,
+    source: 'none',
+  };
+}
+
+/**
+ * The command as a developer would write it: the detected command with the
+ * gate's injected reporter flags removed. In report mode the gate did not run
+ * anything, so this is only a presumption about what produced the report —
+ * the receipt says so — but it is what a claimed `pnpm test` is mapped against.
+ */
+export function bareCommand(detected: DetectedCommand): string {
+  const injected = new Set(detected.reporterArgs);
+  return detected.command
+    .split(' ')
+    .filter((token) => !injected.has(token))
+    .join(' ')
+    .replace(/\s+--$/, '')
+    .trim();
+}
+
+function sha256(text: string): string {
+  return `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`;
+}
+
+/**
+ * Build the observation from the report(s) the repository's own test step
+ * wrote, running nothing. Every way a report can fail to inform — missing,
+ * empty, unreadable, listing no tests — is no evidence, never a pass: a job
+ * whose test step was skipped by a condition still "succeeds", and that is
+ * exactly the green this mode must not mistake for one.
+ */
+export function observeFromReports(
+  evidence: Extract<EvidenceOptions, { kind: 'report' }>,
+  workDir: string,
+  detected: DetectedCommand | null,
+  notes: string[],
+): ObservedRun {
+  const format = evidence.format ?? 'auto';
+  const tests: ObservedRun['tests'] = [];
+  const digests: string[] = [];
+  let family: RunnerFamily | undefined;
+  let parsedReports = 0;
+
+  const note = (text: string): void => {
+    core.info(`report: ${text}`);
+    notes.push(`report: ${text}`);
+  };
+
+  for (const rel of evidence.paths) {
+    const path = isAbsolute(rel) ? rel : join(workDir, rel);
+    const raw = readReport(path);
+    if (raw === undefined) {
+      note(`${rel} is missing or empty — no evidence`);
+      continue;
+    }
+    const fam = format === 'auto' ? sniffReportFormat(raw, detected?.family) : formatFamily(format);
+    if (fam === undefined) {
+      note(`${rel} is in no format the gate reads (go -json, jest/vitest JSON, JUnit XML) — no evidence`);
+      continue;
+    }
+    try {
+      const parsed = normalize(fam, raw, { cwd: realDir(workDir) });
+      tests.push(...parsed.tests);
+      digests.push(sha256(raw));
+      family ??= fam;
+      parsedReports += 1;
+    } catch (err) {
+      note(`could not parse ${rel} as ${fam} (${err instanceof Error ? err.message : String(err)}) — no evidence`);
+    }
+  }
+
+  const totals = totalsOf(tests);
+  if (parsedReports > 0 && tests.length === 0) {
+    note('the report lists no tests — treated as no evidence, not as a pass');
+  }
+  const noEvidence = tests.length === 0;
+
+  let command = evidence.command ?? '';
+  if (evidence.command === undefined && detected !== null) {
+    command = bareCommand(detected);
+    note(`the command is presumed from the repository (\`${command}\`); pass report-command to record the exact one`);
+  }
+  if (detected !== null && family !== undefined && family !== detected.family && !(family === 'junit' && detected.family === 'pytest')) {
+    note(`the report is ${family} output while the repository's own test command is ${detected.family}`);
+  }
+  if (totals.failed > 0) {
+    note('failures cannot be compared against the base commit in report mode; they count against the head');
+  }
+  note(`read from ${evidence.paths.join(', ')} — nothing was re-run; exit code inferred from the report`);
+
+  const digest = digests.length === 1 ? digests[0] : digests.length > 1 ? sha256(digests.join('\n')) : undefined;
+  return {
+    command,
+    runner: family ?? detected?.family ?? 'none',
+    exitCode: totals.failed > 0 ? 1 : 0,
+    durationMs: 0,
+    toolchain: probeToolchain(workDir),
+    totals,
+    tests,
+    source: 'report',
+    reportPath: evidence.paths.join(', '),
+    ...(noEvidence ? { reportMissing: true } : {}),
+    ...(digest === undefined ? {} : { reportDigest: digest }),
   };
 }
 

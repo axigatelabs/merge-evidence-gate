@@ -9,6 +9,27 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
+## 0.10.0 — 2026-09-05
+
+### Added
+
+- `evidence: report` — the gate reads the report the repository's own test step
+  already wrote (`report-path`, one or several; `report-format: auto`
+  recognises go `-json`, jest/vitest JSON and JUnit XML including node's junit
+  reporter) and runs nothing. The receipt says so (`observed.source:
+  "report"`), records the report's sha256 (`observed.report_sha256`), infers
+  the exit code from the report's failures, and presumes the repository's test
+  command unless `report-command` names the exact one. A report that is
+  missing, empty, unreadable or lists no tests is no evidence, never a pass.
+  No base-commit comparison in this mode; the receipt says failures count
+  against the head.
+- `evidence: none` — no test evidence; the diff-based checks alone
+  (`observed.source: "none"`).
+- CLI: `--evidence`, `--report-path` (repeatable), `--report-format`,
+  `--report-command`.
+- The comment's footer names the evidence source, and the claims section says
+  when nothing was re-run.
+
 ## 0.9.0 — 2026-09-05
 
 ### Added

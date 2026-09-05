@@ -227,13 +227,28 @@ export function renderComment(receipt: Receipt, opts?: RenderOptions): RenderedC
   const headline = `**Merge-Evidence Gate — ${receipt.verdict}**  (head ${sha7})`;
   const title = clamp(`Merge-Evidence Gate — ${receipt.verdict}  (head ${sha7})`, MAX_TITLE_CHARS);
   const rerun = opts?.rerunCommand ?? receipt.observed.command;
+  const source = receipt.observed.source;
   const footer =
-    `Details: receipt.json (artifact) · rerun: \`${rerun}\` · ` +
-    formatDuration(receipt.observed.duration_s);
+    source === 'report'
+      ? "Details: receipt.json (artifact) · evidence: the repository's own test report, nothing re-run"
+      : source === 'none'
+        ? 'Details: receipt.json (artifact) · evidence: none — diff-based checks only'
+        : `Details: receipt.json (artifact) · rerun: \`${rerun}\` · ` + formatDuration(receipt.observed.duration_s);
 
   const body: string[] = [];
   const claims = claimLines(receipt, unverifiable);
   body.push('**Claims vs observed**');
+  if (source === 'none') {
+    body.push(
+      '- test run skipped (evidence: none) — claims about the run are unverifiable; ' +
+        (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'),
+    );
+  }
+  if (source === 'report' && receipt.observed.no_evidence !== true) {
+    body.push(
+      `- read from the repository's own test report (${receipt.observed.totals.run} tests), nothing re-run`,
+    );
+  }
   if (receipt.observed.no_test_command === true && claims.length > 0) {
     body.push(
       '- no test command found — claims about the run are unverifiable; ' +
@@ -252,7 +267,9 @@ export function renderComment(receipt: Receipt, opts?: RenderOptions): RenderedC
   }
   if (receipt.observed.no_evidence === true) {
     body.push(
-      `- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +
+      (source === 'report'
+        ? '- the test report is missing, empty or unreadable — nothing was re-run; '
+        : `- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — `) +
         'claims about the run are unverifiable; ' +
         (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'),
     );

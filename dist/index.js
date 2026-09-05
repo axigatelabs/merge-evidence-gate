@@ -84573,7 +84573,7 @@ function isoSeconds(date) {
 function buildReceipt(input) {
     const { pr, agent, claims, observed, diff, discrepancies, verdict, policy } = input;
     const bodyHash = sha256(pr.body);
-    const noTestCommand = observed.noTestCommand === true;
+    const noTestCommand = observed.noTestCommand === true && observed.source !== 'none';
     return {
         schema: 'merge-evidence/receipt/v1',
         generatedAt: isoSeconds(input.now ?? new Date()),
@@ -84594,6 +84594,8 @@ function buildReceipt(input) {
             tests_digest: testsDigest(observed.tests),
             duration_s: Math.round(observed.durationMs / 1000),
             ...(observed.claimId === undefined ? {} : { claim: observed.claimId }),
+            ...(observed.source === undefined || observed.source === 'run' ? {} : { source: observed.source }),
+            ...(observed.reportDigest === undefined ? {} : { report_sha256: observed.reportDigest }),
             ...(noTestCommand ? { no_test_command: true } : {}),
             ...((0, reconcile_js_1.hasNoEvidence)(observed) ? { no_evidence: true } : {}),
             ...baselineProjection(observed),
@@ -84891,7 +84893,7 @@ function checkC1(claims, observed, policy) {
             check: 'C1',
             severity: (0, policy_js_1.resolveSeverity)('C1', policy),
             claim: claim.id,
-            summary: `Claimed \`${parsed.raw}\` passed; the re-run exited ${observed.exitCode}`,
+            summary: `Claimed \`${parsed.raw}\` passed; ${observed.source === 'report' ? `the report shows ${observed.totals.failed} failed` : `the re-run exited ${observed.exitCode}`}`,
             evidence: [
                 `claimed command: ${parsed.raw}`,
                 `observed command: ${observed.command}`,
@@ -85489,11 +85491,22 @@ function renderComment(receipt, opts) {
     const headline = `**Merge-Evidence Gate — ${receipt.verdict}**  (head ${sha7})`;
     const title = clamp(`Merge-Evidence Gate — ${receipt.verdict}  (head ${sha7})`, exports.MAX_TITLE_CHARS);
     const rerun = opts?.rerunCommand ?? receipt.observed.command;
-    const footer = `Details: receipt.json (artifact) · rerun: \`${rerun}\` · ` +
-        formatDuration(receipt.observed.duration_s);
+    const source = receipt.observed.source;
+    const footer = source === 'report'
+        ? "Details: receipt.json (artifact) · evidence: the repository's own test report, nothing re-run"
+        : source === 'none'
+            ? 'Details: receipt.json (artifact) · evidence: none — diff-based checks only'
+            : `Details: receipt.json (artifact) · rerun: \`${rerun}\` · ` + formatDuration(receipt.observed.duration_s);
     const body = [];
     const claims = claimLines(receipt, unverifiable);
     body.push('**Claims vs observed**');
+    if (source === 'none') {
+        body.push('- test run skipped (evidence: none) — claims about the run are unverifiable; ' +
+            (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'));
+    }
+    if (source === 'report' && receipt.observed.no_evidence !== true) {
+        body.push(`- read from the repository's own test report (${receipt.observed.totals.run} tests), nothing re-run`);
+    }
     if (receipt.observed.no_test_command === true && claims.length > 0) {
         body.push('- no test command found — claims about the run are unverifiable; ' +
             (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'));
@@ -85507,7 +85520,9 @@ function renderComment(receipt, opts) {
                 : `${baseline.introduced.length} introduced by this PR`));
     }
     if (receipt.observed.no_evidence === true) {
-        body.push(`- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +
+        body.push((source === 'report'
+            ? '- the test report is missing, empty or unreadable — nothing was re-run; '
+            : `- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — `) +
             'claims about the run are unverifiable; ' +
             (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'));
     }
@@ -86670,7 +86685,7 @@ function fromPackageScript(script, pkg, files) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.adapters = exports.parseNodeTestJUnit = exports.nodeTestAdapter = exports.parseJestJson = exports.vitestAdapter = exports.jestAdapter = exports.parseJUnitXml = exports.pytestAdapter = exports.junitAdapter = exports.parseGoTestJson = exports.goAdapter = exports.REPORT_PATHS = exports.REPORT_DIR = exports.MAX_WORKSPACE_PACKAGES = exports.detectWorkspaceCommand = exports.detectTestCommand = void 0;
+exports.adapters = exports.sniffReportFormat = exports.REPORT_FORMATS = exports.isReportFormat = exports.formatFamily = exports.parseNodeTestJUnit = exports.nodeTestAdapter = exports.parseJestJson = exports.vitestAdapter = exports.jestAdapter = exports.parseJUnitXml = exports.pytestAdapter = exports.junitAdapter = exports.parseGoTestJson = exports.goAdapter = exports.REPORT_PATHS = exports.REPORT_DIR = exports.MAX_WORKSPACE_PACKAGES = exports.detectWorkspaceCommand = exports.detectTestCommand = void 0;
 exports.normalize = normalize;
 exports.testsDigest = testsDigest;
 /**
@@ -86707,6 +86722,11 @@ Object.defineProperty(exports, "parseJestJson", ({ enumerable: true, get: functi
 var node_test_js_2 = __nccwpck_require__(6483);
 Object.defineProperty(exports, "nodeTestAdapter", ({ enumerable: true, get: function () { return node_test_js_2.nodeTestAdapter; } }));
 Object.defineProperty(exports, "parseNodeTestJUnit", ({ enumerable: true, get: function () { return node_test_js_2.parseNodeTestJUnit; } }));
+var sniff_js_1 = __nccwpck_require__(4375);
+Object.defineProperty(exports, "formatFamily", ({ enumerable: true, get: function () { return sniff_js_1.formatFamily; } }));
+Object.defineProperty(exports, "isReportFormat", ({ enumerable: true, get: function () { return sniff_js_1.isReportFormat; } }));
+Object.defineProperty(exports, "REPORT_FORMATS", ({ enumerable: true, get: function () { return sniff_js_1.REPORT_FORMATS; } }));
+Object.defineProperty(exports, "sniffReportFormat", ({ enumerable: true, get: function () { return sniff_js_1.sniffReportFormat; } }));
 /**
  * Adapter per runner family. `undefined` means the family produces no per-test
  * machine-readable output, so the gate can record that a command ran but cannot
@@ -86754,6 +86774,66 @@ function testsDigest(tests) {
     const ids = tests.map((test) => test.id).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const hash = (0, node_crypto_1.createHash)('sha256').update(ids.join('\n'), 'utf8').digest('hex');
     return `sha256:${hash}`;
+}
+
+
+/***/ }),
+
+/***/ 4375:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.REPORT_FORMATS = void 0;
+exports.isReportFormat = isReportFormat;
+exports.formatFamily = formatFamily;
+exports.sniffReportFormat = sniffReportFormat;
+/** Formats an operator may name; `auto` means sniff. */
+exports.REPORT_FORMATS = ['auto', 'go', 'pytest', 'jest', 'vitest', 'node-test', 'junit'];
+function isReportFormat(value) {
+    return exports.REPORT_FORMATS.includes(value);
+}
+/** The runner family that parses a named format. */
+function formatFamily(format) {
+    return format;
+}
+/**
+ * The family whose adapter reads `raw`, or undefined when it is none the gate
+ * knows. `hint` is the repository's detected runner: it breaks the ties a
+ * format cannot — Vitest writes Jest's JSON shape, pytest writes plain JUnit.
+ */
+function sniffReportFormat(raw, hint) {
+    const text = raw.trimStart();
+    if (text === '')
+        return undefined;
+    if (text.startsWith('<')) {
+        if (!/<testsuites?[\s>]/.test(text))
+            return undefined;
+        // node's junit reporter: every testcase says classname="test" and carries the file.
+        const classnames = text.match(/classname="[^"]*"/g) ?? [];
+        if (classnames.length > 0 && classnames.every((c) => c === 'classname="test"') && /<testcase [^>]*file="/.test(text)) {
+            return 'node-test';
+        }
+        return hint === 'pytest' || hint === 'junit' ? hint : 'junit';
+    }
+    if (text.startsWith('{')) {
+        // go test -json is one object per line, each with an Action; jest/vitest is one document.
+        const firstLine = text.split('\n', 1)[0] ?? '';
+        if (/"Action"\s*:/.test(firstLine) && /"Time"\s*:|"Package"\s*:/.test(firstLine))
+            return 'go';
+        try {
+            const parsed = JSON.parse(text);
+            if (typeof parsed === 'object' && parsed !== null && Array.isArray(parsed.testResults)) {
+                return hint === 'vitest' ? 'vitest' : 'jest';
+            }
+        }
+        catch {
+            // not one JSON document; fall through
+        }
+        return undefined;
+    }
+    return undefined;
 }
 
 
@@ -86835,6 +86915,7 @@ const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
 const github_js_1 = __nccwpck_require__(36339);
 const verdict_js_1 = __nccwpck_require__(28263);
+const index_js_1 = __nccwpck_require__(94375);
 const pipeline_js_1 = __nccwpck_require__(15165);
 /** Events that carry a pull request worth gating. */
 const GATE_EVENTS = new Set(['pull_request', 'pull_request_target', 'merge_group']);
@@ -86864,6 +86945,43 @@ function optionalBoolInput(name) {
         return undefined;
     return boolInput(name, true);
 }
+/**
+ * `evidence`, `report-path`, `report-format`, `report-command`. Returns
+ * undefined for the default (`run`), so the pipeline's own default applies.
+ * A `report` mode with no path is a misconfiguration, thrown so the job fails
+ * whatever `fail-on` says: that is not a verdict.
+ */
+function readEvidenceInputs() {
+    const mode = core.getInput('evidence').trim().toLowerCase();
+    if (mode === '' || mode === 'run')
+        return undefined;
+    if (mode === 'none')
+        return { kind: 'none' };
+    if (mode !== 'report') {
+        core.warning(`input 'evidence': expected 'run', 'report' or 'none', got '${mode}' — using 'run'`);
+        return undefined;
+    }
+    const paths = core
+        .getInput('report-path')
+        .split(/[\n,]/)
+        .map((p) => p.trim())
+        .filter((p) => p !== '');
+    if (paths.length === 0) {
+        throw new Error("input 'evidence' is 'report' but 'report-path' is empty — name the report your test step wrote");
+    }
+    const formatRaw = core.getInput('report-format').trim().toLowerCase();
+    let format;
+    if (formatRaw === '' || formatRaw === 'auto')
+        format = undefined;
+    else if ((0, index_js_1.isReportFormat)(formatRaw))
+        format = formatRaw;
+    else {
+        core.warning(`input 'report-format': expected one of ${index_js_1.REPORT_FORMATS.join(', ')}, got '${formatRaw}' — using 'auto'`);
+        format = undefined;
+    }
+    const command = core.getInput('report-command').trim();
+    return { kind: 'report', paths, ...(format === undefined ? {} : { format }), ...(command === '' ? {} : { command }) };
+}
 function readInputs() {
     const failOnRaw = core.getInput('fail-on').trim().toLowerCase();
     if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human' && failOnRaw !== 'never') {
@@ -86874,6 +86992,7 @@ function readInputs() {
         core.warning(`input 'base-comparison': expected 'auto' or 'never', got '${baseRaw}' — using 'auto'`);
     }
     return {
+        evidence: readEvidenceInputs(),
         token: core.getInput('github-token'),
         testCommand: core.getInput('test-command').trim(),
         agentsOnly: optionalBoolInput('agents-only'),
@@ -87021,6 +87140,7 @@ async function run() {
         testCommand: inputs.testCommand,
         ...(inputs.agentsOnly === undefined ? {} : { agentsOnly: inputs.agentsOnly }),
         baseComparison: inputs.baseComparison,
+        ...(inputs.evidence === undefined ? {} : { evidence: inputs.evidence }),
     });
     if (result.skipped === 'not-agent') {
         setOutputs('NEUTRAL', 0, '');
@@ -87122,6 +87242,9 @@ exports.mergeBaseOf = mergeBaseOf;
 exports.changedFilesDetailed = changedFilesDetailed;
 exports.changedFiles = changedFiles;
 exports.evaluate = evaluate;
+exports.skippedObservation = skippedObservation;
+exports.bareCommand = bareCommand;
+exports.observeFromReports = observeFromReports;
 exports.packageInstallPlans = packageInstallPlans;
 exports.installPackageDependencies = installPackageDependencies;
 exports.workspacePackages = workspacePackages;
@@ -87151,6 +87274,7 @@ exports.installOnly = installOnly;
  * may fail a run, and a claim the gate could not verify is reported, never
  * counted against the PR.
  */
+const node_crypto_1 = __nccwpck_require__(77598);
 const node_fs_1 = __nccwpck_require__(73024);
 const node_path_1 = __nccwpck_require__(76760);
 const core = __importStar(__nccwpck_require__(37484));
@@ -87780,8 +87904,20 @@ async function evaluate(opts) {
     else {
         detected = root ?? (packages.length > 0 ? (0, index_js_4.detectWorkspaceCommand)({ rootFiles: files, packages }) : null);
     }
+    const evidence = opts.evidence ?? { kind: 'run' };
     let observed;
-    if (detected === null) {
+    if (evidence.kind === 'none') {
+        const note = 'evidence: none — the test run was skipped by configuration; claims about the run are unverifiable';
+        core.info(note);
+        notes.push(note);
+        await ensureHeadCheckout(workDir, pr.headSha, notes);
+        observed = skippedObservation(workDir);
+    }
+    else if (evidence.kind === 'report') {
+        await ensureHeadCheckout(workDir, pr.headSha, notes);
+        observed = observeFromReports(evidence, workDir, detected, notes);
+    }
+    else if (detected === null) {
         const note = 'no test command could be detected — configure `test-command:` to enable the gate';
         core.warning(`runner: ${note}`);
         notes.push(note);
@@ -87844,6 +87980,110 @@ async function evaluate(opts) {
         unverifiable,
         notes,
         receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
+    };
+}
+/** The observation for `evidence: none`: nothing ran, by configuration. */
+function skippedObservation(workDir) {
+    return {
+        command: '',
+        runner: 'none',
+        exitCode: 0,
+        durationMs: 0,
+        toolchain: (0, env_js_1.probeToolchain)(workDir),
+        totals: exports.EMPTY_TOTALS,
+        tests: [],
+        noTestCommand: true,
+        source: 'none',
+    };
+}
+/**
+ * The command as a developer would write it: the detected command with the
+ * gate's injected reporter flags removed. In report mode the gate did not run
+ * anything, so this is only a presumption about what produced the report —
+ * the receipt says so — but it is what a claimed `pnpm test` is mapped against.
+ */
+function bareCommand(detected) {
+    const injected = new Set(detected.reporterArgs);
+    return detected.command
+        .split(' ')
+        .filter((token) => !injected.has(token))
+        .join(' ')
+        .replace(/\s+--$/, '')
+        .trim();
+}
+function sha256(text) {
+    return `sha256:${(0, node_crypto_1.createHash)('sha256').update(text, 'utf8').digest('hex')}`;
+}
+/**
+ * Build the observation from the report(s) the repository's own test step
+ * wrote, running nothing. Every way a report can fail to inform — missing,
+ * empty, unreadable, listing no tests — is no evidence, never a pass: a job
+ * whose test step was skipped by a condition still "succeeds", and that is
+ * exactly the green this mode must not mistake for one.
+ */
+function observeFromReports(evidence, workDir, detected, notes) {
+    const format = evidence.format ?? 'auto';
+    const tests = [];
+    const digests = [];
+    let family;
+    let parsedReports = 0;
+    const note = (text) => {
+        core.info(`report: ${text}`);
+        notes.push(`report: ${text}`);
+    };
+    for (const rel of evidence.paths) {
+        const path = (0, node_path_1.isAbsolute)(rel) ? rel : (0, node_path_1.join)(workDir, rel);
+        const raw = (0, env_js_1.readReport)(path);
+        if (raw === undefined) {
+            note(`${rel} is missing or empty — no evidence`);
+            continue;
+        }
+        const fam = format === 'auto' ? (0, index_js_4.sniffReportFormat)(raw, detected?.family) : (0, index_js_4.formatFamily)(format);
+        if (fam === undefined) {
+            note(`${rel} is in no format the gate reads (go -json, jest/vitest JSON, JUnit XML) — no evidence`);
+            continue;
+        }
+        try {
+            const parsed = (0, index_js_4.normalize)(fam, raw, { cwd: realDir(workDir) });
+            tests.push(...parsed.tests);
+            digests.push(sha256(raw));
+            family ??= fam;
+            parsedReports += 1;
+        }
+        catch (err) {
+            note(`could not parse ${rel} as ${fam} (${err instanceof Error ? err.message : String(err)}) — no evidence`);
+        }
+    }
+    const totals = totalsOf(tests);
+    if (parsedReports > 0 && tests.length === 0) {
+        note('the report lists no tests — treated as no evidence, not as a pass');
+    }
+    const noEvidence = tests.length === 0;
+    let command = evidence.command ?? '';
+    if (evidence.command === undefined && detected !== null) {
+        command = bareCommand(detected);
+        note(`the command is presumed from the repository (\`${command}\`); pass report-command to record the exact one`);
+    }
+    if (detected !== null && family !== undefined && family !== detected.family && !(family === 'junit' && detected.family === 'pytest')) {
+        note(`the report is ${family} output while the repository's own test command is ${detected.family}`);
+    }
+    if (totals.failed > 0) {
+        note('failures cannot be compared against the base commit in report mode; they count against the head');
+    }
+    note(`read from ${evidence.paths.join(', ')} — nothing was re-run; exit code inferred from the report`);
+    const digest = digests.length === 1 ? digests[0] : digests.length > 1 ? sha256(digests.join('\n')) : undefined;
+    return {
+        command,
+        runner: family ?? detected?.family ?? 'none',
+        exitCode: totals.failed > 0 ? 1 : 0,
+        durationMs: 0,
+        toolchain: (0, env_js_1.probeToolchain)(workDir),
+        totals,
+        tests,
+        source: 'report',
+        reportPath: evidence.paths.join(', '),
+        ...(noEvidence ? { reportMissing: true } : {}),
+        ...(digest === undefined ? {} : { reportDigest: digest }),
     };
 }
 /**

@@ -154,6 +154,9 @@ export interface BaselineRun {
   noEvidence?: boolean;
 }
 
+/** Where an observation came from: the gate's own run, a report the repository's test step wrote, or nothing. */
+export type EvidenceSource = 'run' | 'report' | 'none';
+
 export interface ObservedRun {
   /** The exact command executed, after reporter injection. */
   command: string;
@@ -193,6 +196,14 @@ export interface ObservedRun {
   reportPath?: string;
   /** The claim whose command this run executed, when the run came from a claim. */
   claimId?: string;
+  /**
+   * Where the observation came from: a clean re-run by the gate (`run`, the
+   * default when absent), a report the repository's own test step wrote
+   * (`report`), or nothing — the run was skipped by configuration (`none`).
+   */
+  source?: EvidenceSource;
+  /** sha256 over the report bytes the observation was read from, in `report` mode. */
+  reportDigest?: string;
 }
 
 /** Context an adapter may use while parsing; every field is optional. */
@@ -319,6 +330,15 @@ export interface Receipt {
     /** The claim whose command this run executed, when the run came from a claim. */
     claim?: string;
     no_test_command?: boolean;
+    /**
+     * Absent for the gate's own run. `report`: the observation was read from
+     * the repository's own test report — nothing was re-run, and the exit code
+     * is inferred from the report's failures. `none`: the run was skipped by
+     * configuration; command and count claims are unverifiable.
+     */
+    source?: EvidenceSource;
+    /** sha256 over the report bytes, when the observation was read from a report. */
+    report_sha256?: string;
     /**
      * True when the command ran but produced no evidence about the PR: the
      * runner died by signal, could not start (exit 126/127), or its report is

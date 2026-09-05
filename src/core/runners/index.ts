@@ -20,6 +20,8 @@ export { goAdapter, parseGoTestJson } from './adapters/go.js';
 export { junitAdapter, pytestAdapter, parseJUnitXml } from './adapters/junit.js';
 export { jestAdapter, vitestAdapter, parseJestJson } from './adapters/jest.js';
 export { nodeTestAdapter, parseNodeTestJUnit } from './adapters/node-test.js';
+export { formatFamily, isReportFormat, REPORT_FORMATS, sniffReportFormat } from './sniff.js';
+export type { ReportFormat } from './sniff.js';
 
 /**
  * Adapter per runner family. `undefined` means the family produces no per-test
