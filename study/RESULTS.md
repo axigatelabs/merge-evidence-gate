@@ -114,11 +114,12 @@ changeset files and build configs the bodies do not name.
   fail some tests on a clean runner (network-dependent tests, missing keys).
   The gate only counts a failure against a PR when the PR *claimed* the run
   passed. Base-commit comparison is planned for v1.1.
-- **Where "Unsupported" comes from.** Two shapes so far, both deliberate: a
-  count that describes one package ("322 tests") while the gate ran the whole
-  monorepo, and a bare `pnpm test` claim in a monorepo, which the gate refuses
-  to map onto the root run because the body may mean any package's script.
-  Neither is held against the author.
+- **Where "Unsupported" comes from.** One shape so far, and it is deliberate:
+  a count that describes one package ("1480 tests", "322 tests") while the gate
+  ran the whole monorepo. The run's totals say nothing about that subset, so
+  the claim is not held against the author. A bare `pnpm test` claim, by
+  contrast, maps onto the root run the same invocation started — that is why
+  #22963 is a C1 finding rather than an Unsupported claim.
 - **One command per PR.** When a body claims several commands, v1 verifies the
   first. Multi-command verification is planned.
 - **The sample is what public agents leave behind.** Repositories that ban

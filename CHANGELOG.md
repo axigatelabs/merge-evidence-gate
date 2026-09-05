@@ -37,8 +37,9 @@ review of the fix.
   keep their normal exit code as C1 evidence; the 128+ rule is not applied to
   them because mocha and friends exit with the failure count.
 - **A killed runner is recorded as such.** When the test process dies by
-  signal, `ObservedRun.signal` names it and `exit_code` carries the shell's
-  128 + signal number instead of `null`.
+  signal, `exit_code` carries the shell's 128 + signal number instead of
+  `null`, and `ObservedRun.signal` names the signal when the shell's kill
+  notice identifies it (`Killed`, `Terminated`; `unknown` otherwise).
 - **Package-script claims map to their resolved runner.** A claimed
   `pnpm test` / `npm test` / `yarn test` (claim family `npm`) now maps to the
   observed run when the run was started by the same invocation, whether the
@@ -48,13 +49,17 @@ review of the fix.
   contract fields) so the reconciler can tell "the reporter never wrote" from
   "the report says zero tests ran", and "no changed files" from "only
   allow-listed paths changed".
-- Test-file recognition for Ruby (`_spec.rb`, `_test.rb`), JVM/.NET/PHP/Swift
-  class-per-file names (`UserTest.java`, `UserTests.cs`, `UserSpec.scala`),
-  Cypress (`.cy.ts`), `spec/`, `e2e/` and `cypress/` directories, case-insensitive
-  test directories (`Tests/`), and Rust inline `#[test]` blocks added to a
-  source file.
+- Test-file recognition for RSpec (`*_spec.rb` below `spec/`, `spec_helper.rb`,
+  `spec/support/`), Django's `tests.py`, `_test` / `_unittest` suffixes (Deno,
+  gtest, Dart, Elixir), Cypress `.cy.<script>` files, source files under `e2e/`
+  and `cypress/`, .NET `*.Tests/` projects, Flutter and Android test
+  directories, case-insensitive test directories (`Tests/`), and Rust inline
+  `#[test]` / `#[tokio::test]`-style blocks added to a source file. `spec/`
+  documents and class names such as `SpeedTest.java` or `V1PodSpec.java` are
+  deliberately not tests.
 - Study harness: per-container CPU and memory ceilings, memory sized from the
-  Docker VM and the parallel slots, and `study/rerun-inconclusive.sh`.
+  Docker VM and the parallel slots (`study/lib-resources.sh`),
+  `study/rerun-inconclusive.sh`, and `study/rerun-prs.sh` for specific rows.
 
 ### Changed
 

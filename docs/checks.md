@@ -43,11 +43,12 @@ ends with a note of which sources feed it.
 
 ---
 
-## C1 — a claimed command never ran, or failed
+## C1 — a claimed command failed on the clean re-run
 
 **What it catches.** The pull request says a command was run and passed. On a
-clean runner it does not pass — or the command the repository actually runs is
-not the one that was claimed.
+clean runner the same command does not pass. A claim the gate cannot map to
+what ran (a different runner family, selectors naming tests that never
+executed) is reported unverifiable — never a hit; see "How it is detected".
 
 **How it is detected.** `extractClaims` emits a `command` claim for every inline
 code span whose opening matches a known test-runner invocation — `go test`,
@@ -65,8 +66,8 @@ command the repository actually uses, injects a machine-readable reporter, and
 the Action executes it. C1 fires when the claim maps to the executed run and
 that run exited non-zero. A claim maps when its runner family, path selectors,
 and name filters are covered by what ran; a package-script claim (`pnpm test`,
-`npm test`, `yarn test`) maps when the run was started by the same invocation,
-whatever runner the script resolved to. A claim that does not map — a different
+`npm test`, `yarn test`) maps when the run was started by the same invocation
+and the script resolved to jest, vitest, or an opaque script. A claim that does not map — a different
 runner family, selectors naming tests that never executed — is reported
 **unverifiable**, never as C1. A non-zero exit counts even with zero tests
 recorded — a jest or vitest suite that fails to load still writes its report,
@@ -118,7 +119,8 @@ totals on the receipt always agree with the list of tests they summarize.
 *Implemented:* both sides and the comparison rule.
 
 **Evidence recorded.** `claimed total=480`, `observed run=412`, and the per-field
-comparison for whichever of passed/failed/skipped/total the claim stated.
+comparison for whichever of passed, failed, and total the claim stated (a
+skipped count is parsed and recorded, not compared).
 
 **Default severity.** `needs-human`. A count can differ for honest reasons — a
 different filter, tests skipped on the runner's platform. This is a "look at
@@ -143,23 +145,30 @@ skip it, or focus a different one.
 
 1. **Test files added, modified, deleted, or renamed.** `analyzeDiff`
    (`src/core/diff/analyze.ts`) classifies each changed path with `isTestFile`
-   (`src/core/diff/classify.ts`): `*_test.go`, `test_*.py` / `*_test.py`,
-   `conftest.py`, `*.test.*` / `*.spec.*`, Ruby `*_spec.rb` / `*_test.rb`,
-   class-per-file names `*Test.java|kt|php` and `*Tests.cs|swift`, Cypress
-   `*.cy.ts|js`, anything under a `test/`, `tests/`, `__tests__/`, or
-   `testdata/` directory (case-insensitive, so `Tests/` counts), and source
-   files under `e2e/` or `cypress/`. A Rust source file whose patch adds
+   (`src/core/diff/classify.ts`): `*_test.go`, `test_*.py` / `*_test.py` /
+   Django's `tests.py`, `conftest.py`, `*.test.*` / `*.spec.*`, Cypress
+   `*.cy.<script>`, `_test` / `_unittest` suffixes for Deno, gtest, Dart and
+   Elixir, RSpec's `*_spec.rb` (below `spec/`) with `spec_helper.rb` /
+   `rails_helper.rb` and `spec/support/`, `spec/factories/`; anything under a
+   `test/`, `tests/`, `__tests__/`, `testdata/`, Flutter `integration_test/` /
+   `test_driver/`, Android `androidTest/`, or .NET `*.Tests/` directory
+   (case-insensitive, so `Tests/` counts); and source files under `e2e/` or
+   `cypress/`. Class-per-file names (`SpeedTest.java`) and `spec/` documents
+   are deliberately not tests on their own. A Rust source file whose patch adds
    `#[test]` or `#[cfg(test)]` counts as a test edit. `spec/` directories and
    `*Spec.java` names are deliberately not tests — OpenAPI documents and
    product classes live there. A rename counts as touching a test when *either*
    endpoint is a test path, so `a_test.go → b.go` is caught.
 
 2. **Individual test cases that disappeared.** `diff.tests.deleted` on the
-   receipt is the set difference between the tests enumerated at base and at
-   head (`ObservedRun.enumeratedAtBase` / `enumeratedAtHead` in
+   receipt also carries the set difference between the tests enumerated at base
+   and at head (`ObservedRun.enumeratedAtBase` / `enumeratedAtHead` in
    `src/core/types.ts`) — runner enumeration, not a regex over the patch. This is
-   how a test deleted from inside a surviving file is found. The enumeration is
-   filled in by the pipeline when the runner can list tests at both commits.
+   how a test deleted from inside a surviving file would be found. The
+   reconciler and the receipt implement it; the pipeline does not yet enumerate
+   tests at both commits, so today this source is empty and a test removed
+   from inside a surviving file is reported only through the file-level and
+   marker rules.
 
 3. **Skip and focus markers added by this diff.** `findSkipMarkers` and
    `findFocusMarkers` (`src/core/diff/markers.ts`) read only the `+` lines of the
@@ -176,8 +185,9 @@ skip it, or focus a different one.
    read as `xit(` and `benefit(` is not read as `fit(`. Hits are deduplicated per
    (file, marker) pair.
 
-*Implemented:* all three sources; source 2 is fed whenever the runner
-enumerated tests at both commits.
+*Implemented:* sources 1 and 3, and the reconciliation of source 2.
+*Planned:* the pipeline step that enumerates tests at both commits to feed
+source 2.
 
 **Evidence recorded.** For markers: the file path and the marker string verbatim
 (`test/cart.test.js`, `it.only(`). For deleted files: the path. For a test id

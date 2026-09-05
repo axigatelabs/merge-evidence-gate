@@ -83628,7 +83628,18 @@ exports.verificationLayerReason = verificationLayerReason;
  * test conventions that use it (RSpec `_spec.rb`, Jasmine `.spec.js`) are
  * matched on the file name instead.
  */
-const TEST_DIR_SEGMENTS = new Set(['test', 'tests', '__tests__', 'testdata']);
+const TEST_DIR_SEGMENTS = new Set([
+    'test',
+    'tests',
+    '__tests__',
+    '__test__',
+    'testdata',
+    'integration_test', // Flutter
+    'test_driver', // Flutter
+    'androidtest', // Android source set (compared lower-cased)
+]);
+/** .NET test projects are directories named `<Project>.Tests` / `<Project>.Test`. */
+const DOTNET_TEST_PROJECT = /\.tests?$/i;
 /** End-to-end trees where only SOURCE files are tests: `e2e/README.md` is documentation. */
 const E2E_DIR_SEGMENTS = new Set(['e2e', 'cypress']);
 /** A file that holds code in a language with a test runner. */
@@ -83637,21 +83648,37 @@ const isTestDirSegment = (segment) => TEST_DIR_SEGMENTS.has(segment.toLowerCase(
 const isE2eDirSegment = (segment) => E2E_DIR_SEGMENTS.has(segment.toLowerCase());
 /** Go test files: `pkg/node/prune_test.go`. */
 const GO_TEST_FILE = /_test\.go$/;
-/** Ruby: RSpec `spec/models/user_spec.rb`, Minitest `test/models/user_test.rb`. */
-const RB_TEST_FILE = /_(?:spec|test)\.rb$/;
 /**
- * Class-per-file conventions: `UserTest.java`, `UserTests.cs`, `UserTest.php`,
- * `UserTests.swift`. `*Spec` is NOT a test convention in these languages —
- * `V1PodSpec.java`, `CopySpec.java`, `OpenApiSpec.kt` are product classes — so
- * ScalaTest's `UserSpec.scala` is recognised by its `src/test/` directory.
+ * Ruby: RSpec `spec/models/user_spec.rb` — only below a `spec/` directory, since
+ * `app/models/blood_test.rb` is a product model — plus the helpers and support
+ * trees RSpec loads. Minitest lives under `test/` (directory rule).
  */
-const CLASS_TEST_FILE = /Tests?\.(?:java|kt|kts|cs|php|swift)$/;
+const RB_SPEC_FILE = /_spec\.rb$/;
+const RB_SPEC_HELPER = /(?:^|\/)(?:spec|rails)_helper\.rb$/;
+const RB_SPEC_SUPPORT = new Set(['support', 'factories']);
+/**
+ * `_test` / `_unittest` file suffixes in languages whose runners use them: Deno
+ * (`login_test.ts`), gtest (`parser_test.cc`, `parser_unittest.cc`), Dart
+ * (`login_test.dart`), Elixir (`login_test.exs`).
+ *
+ * Class-per-file names such as `UserTest.java` are deliberately NOT a rule:
+ * JUnit, Kotlin, PHPUnit and XCTest all keep tests under a `test/`, `tests/`
+ * or `Tests/` directory (matched above), while `SpeedTest.java` or
+ * `LoadTest.cs` outside one is product code. `*Spec` names are product classes
+ * (`V1PodSpec.java`, `OpenApiSpec.kt`); ScalaTest's `UserSpec.scala` is
+ * recognised by its `src/test/` directory.
+ */
+const SUFFIX_TEST_FILE = /_(?:test|unittest)\.(?:[cm]?[jt]sx?|cc|cpp|cxx|c|dart|exs?)$/;
 /** Cypress specs: `login.cy.ts`. Script extensions only — `about.cy.md` is a Welsh page. */
 const CY_TEST_FILE = /\.cy\.[cm]?[jt]sx?$/;
-/** Rust keeps unit tests inside the source file; an added `#[test]` or `#[cfg(test)]` is a test edit. */
-const RUST_INLINE_TEST = /^\s*#\[(?:test|cfg\(test\))\]/;
-/** Python test modules, both orderings: `tests/test_login.py`, `login_test.py`. */
-const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py)$/;
+/**
+ * Rust keeps unit tests inside the source file; an added `#[test]`,
+ * `#[cfg(test)]`, or an attribute-macro test (`#[tokio::test]`, `#[rstest]`,
+ * `#[test_case(…)]`, `#[wasm_bindgen_test]`, `#[proptest]`) is a test edit.
+ */
+const RUST_INLINE_TEST = /^\s*#\[(?:cfg\(test\)|(?:\w+::)*(?:test|rstest|test_case|proptest|quickcheck|wasm_bindgen_test)\b)/;
+/** Python test modules, both orderings plus Django's default `app/tests.py`: `tests/test_login.py`, `login_test.py`. */
+const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py|tests\.py)$/;
 /** Python shared test fixtures/plugins at any depth: `tests/conftest.py`. */
 const PY_CONFTEST = /(?:^|\/)conftest\.py$/;
 /** JS/TS-family test files: `login.test.ts`, `login.spec.tsx`, `api.test.d.ts`. */
@@ -83820,15 +83847,23 @@ function isTestFile(path) {
         return true;
     if (JS_TEST_FILE.test(p))
         return true;
-    if (RB_TEST_FILE.test(p))
-        return true;
-    if (CLASS_TEST_FILE.test(p))
-        return true;
     if (CY_TEST_FILE.test(p))
+        return true;
+    if (SUFFIX_TEST_FILE.test(p))
+        return true;
+    if (RB_SPEC_HELPER.test(p))
         return true;
     const segments = dirSegments(p);
     if (segments.some(isTestDirSegment))
         return true;
+    if (segments.some((segment) => DOTNET_TEST_PROJECT.test(segment)))
+        return true;
+    if (segments.some((segment) => segment.toLowerCase() === 'spec')) {
+        if (RB_SPEC_FILE.test(p))
+            return true;
+        if (segments.some((segment) => RB_SPEC_SUPPORT.has(segment.toLowerCase())))
+            return true;
+    }
     return SOURCE_EXT.test(p) && segments.some(isE2eDirSegment);
 }
 /**
@@ -83852,7 +83887,7 @@ function isSnapshotFile(path) {
     if (SNAPSHOT_EXT.test(p))
         return true;
     const segments = dirSegments(p);
-    if (segments.includes('testdata'))
+    if (segments.some((segment) => segment.toLowerCase() === 'testdata'))
         return true;
     if (segments.includes('fixtures')) {
         // `fixtures/` only counts under a test dir: `test/fixtures/user.json` yes, `src/fixtures/flags.json` no.
@@ -84658,18 +84693,19 @@ function checkC2(claims, observed, policy) {
  * the most-copied PR template directly under the real "I have added tests"
  * line. The noun must be plural, or an explicit "test case", "test coverage",
  * or "a test for": "added a test account", "added a test plan section",
- * "added the `--skip-tests` flag" never count.
+ * "added unit test helpers", "added the `--skip-tests` flag" never count.
  *
  * `study/summarize.mjs` carries a verbatim copy; a test keeps them identical.
  */
-exports.TESTS_ADDED_LABEL = /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/\w+)?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|(?:unit|integration|regression|e2e|end-to-end)\s+tests?|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
+exports.TESTS_ADDED_LABEL = /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/(?:updated|extended|adjusted|improved|expanded|fixed))?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
 /**
  * Negations and hedges: "no tests added", "tests weren't added", "N/A",
- * "(if applicable)", "in a follow-up", "if fixing a bug", "or this PR is
- * test-exempt". A ticked box with one of these is an honest statement or a
- * template hedge, never a hit.
+ * "Tests added: 0", "(if applicable)", "in a follow-up", "if fixing a bug",
+ * "or this PR is test-exempt", "tests were added in another PR" / "in #99".
+ * A ticked box with one of these is an honest statement, a template hedge, or
+ * a claim about a different change — never a hit.
  */
-exports.TESTS_ADDED_NEGATION = /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bor\s+(?:this|the|it|we|i)\b/i;
+exports.TESTS_ADDED_NEGATION = /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt|optional|unless)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bonly\s+if\b|\bor\s+(?:this|the|it|we|i)\b|\b(?:another|separate|previous|earlier|prior|different|other|upstream)\s+(?:PR|pull\s+request|change|changeset|commit|branch)\b|\bin\s+#\d+|:\s*(?:0|zero|none)\b/i;
 /** True for a checked checkbox claim whose label asserts tests were added. */
 function claimsTestsAdded(claim) {
     if (claim.parsed.kind !== 'checkbox' || !claim.parsed.checked)
@@ -85086,6 +85122,10 @@ function renderComment(receipt, opts) {
     const body = [];
     const claims = claimLines(receipt, unverifiable);
     body.push('**Claims vs observed**');
+    if (receipt.observed.no_test_command === true && claims.length > 0) {
+        body.push('- no test command found — claims about the run are unverifiable; ' +
+            (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'));
+    }
     if (receipt.observed.no_evidence === true) {
         body.push(`- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +
             'claims about the run are unverifiable; ' +

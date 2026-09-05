@@ -502,6 +502,14 @@ describe('C7 label pattern — what asserts that tests were added', () => {
       "Tests weren't added: pure refactor",
       'Tests will be added in a follow-up',
       'Added tests: N/A',
+      'Tests added: 0',
+      'Tests were added in another PR',
+      'Tests added in #99',
+      'Added unit test helpers',
+      'Added/removed tests',
+      'Optional: add tests',
+      'Removed the flaky tests added in #99',
+      'Unit tests are written in Vitest',
     ]) {
       expect(asserts(label), label).toBe(false);
     }

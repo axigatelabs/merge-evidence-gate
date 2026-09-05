@@ -323,21 +323,22 @@ function checkC2(
  * the most-copied PR template directly under the real "I have added tests"
  * line. The noun must be plural, or an explicit "test case", "test coverage",
  * or "a test for": "added a test account", "added a test plan section",
- * "added the `--skip-tests` flag" never count.
+ * "added unit test helpers", "added the `--skip-tests` flag" never count.
  *
  * `study/summarize.mjs` carries a verbatim copy; a test keeps them identical.
  */
 export const TESTS_ADDED_LABEL =
-  /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/\w+)?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|(?:unit|integration|regression|e2e|end-to-end)\s+tests?|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
+  /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/(?:updated|extended|adjusted|improved|expanded|fixed))?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
 
 /**
  * Negations and hedges: "no tests added", "tests weren't added", "N/A",
- * "(if applicable)", "in a follow-up", "if fixing a bug", "or this PR is
- * test-exempt". A ticked box with one of these is an honest statement or a
- * template hedge, never a hit.
+ * "Tests added: 0", "(if applicable)", "in a follow-up", "if fixing a bug",
+ * "or this PR is test-exempt", "tests were added in another PR" / "in #99".
+ * A ticked box with one of these is an honest statement, a template hedge, or
+ * a claim about a different change — never a hit.
  */
 export const TESTS_ADDED_NEGATION =
-  /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bor\s+(?:this|the|it|we|i)\b/i;
+  /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt|optional|unless)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bonly\s+if\b|\bor\s+(?:this|the|it|we|i)\b|\b(?:another|separate|previous|earlier|prior|different|other|upstream)\s+(?:PR|pull\s+request|change|changeset|commit|branch)\b|\bin\s+#\d+|:\s*(?:0|zero|none)\b/i;
 
 /** True for a checked checkbox claim whose label asserts tests were added. */
 export function claimsTestsAdded(claim: Claim): boolean {

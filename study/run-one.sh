@@ -35,8 +35,8 @@ REPOVOL="meg-work-${KEY}-${NUM}"
 # MEG_MEM is sized by the batch scripts from the VM and the parallel slots
 # (study/lib-resources.sh); the CPU pin is clamped to what the VM exposes.
 MEG_CPUS="${MEG_CPUS:-6}"; MEG_MEM="${MEG_MEM:-5g}"
-NCPU="$(docker info --format '{{.NCPU}}' 2>/dev/null || echo "$MEG_CPUS")"
-[ "${NCPU:-0}" -ge 1 ] && [ "$MEG_CPUS" -gt "$NCPU" ] && MEG_CPUS="$NCPU"
+NCPU="$(docker info --format '{{.NCPU}}' 2>/dev/null || true)"
+[[ "$NCPU" =~ ^[0-9]+$ ]] && [ "$NCPU" -ge 1 ] && [ "$MEG_CPUS" -gt "$NCPU" ] && MEG_CPUS="$NCPU"
 RES_ARGS=( --cpuset-cpus "0-$((MEG_CPUS - 1))" --memory "$MEG_MEM" --memory-swap "$MEG_MEM" )
 
 # Persistent package caches shared by every run (named Docker volumes): the

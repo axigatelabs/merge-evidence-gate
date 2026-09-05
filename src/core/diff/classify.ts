@@ -19,7 +19,19 @@
  * test conventions that use it (RSpec `_spec.rb`, Jasmine `.spec.js`) are
  * matched on the file name instead.
  */
-const TEST_DIR_SEGMENTS: ReadonlySet<string> = new Set(['test', 'tests', '__tests__', 'testdata']);
+const TEST_DIR_SEGMENTS: ReadonlySet<string> = new Set([
+  'test',
+  'tests',
+  '__tests__',
+  '__test__',
+  'testdata',
+  'integration_test', // Flutter
+  'test_driver', // Flutter
+  'androidtest', // Android source set (compared lower-cased)
+]);
+
+/** .NET test projects are directories named `<Project>.Tests` / `<Project>.Test`. */
+const DOTNET_TEST_PROJECT = /\.tests?$/i;
 
 /** End-to-end trees where only SOURCE files are tests: `e2e/README.md` is documentation. */
 const E2E_DIR_SEGMENTS: ReadonlySet<string> = new Set(['e2e', 'cypress']);
@@ -33,25 +45,41 @@ const isE2eDirSegment = (segment: string): boolean => E2E_DIR_SEGMENTS.has(segme
 /** Go test files: `pkg/node/prune_test.go`. */
 const GO_TEST_FILE = /_test\.go$/;
 
-/** Ruby: RSpec `spec/models/user_spec.rb`, Minitest `test/models/user_test.rb`. */
-const RB_TEST_FILE = /_(?:spec|test)\.rb$/;
+/**
+ * Ruby: RSpec `spec/models/user_spec.rb` — only below a `spec/` directory, since
+ * `app/models/blood_test.rb` is a product model — plus the helpers and support
+ * trees RSpec loads. Minitest lives under `test/` (directory rule).
+ */
+const RB_SPEC_FILE = /_spec\.rb$/;
+const RB_SPEC_HELPER = /(?:^|\/)(?:spec|rails)_helper\.rb$/;
+const RB_SPEC_SUPPORT: ReadonlySet<string> = new Set(['support', 'factories']);
 
 /**
- * Class-per-file conventions: `UserTest.java`, `UserTests.cs`, `UserTest.php`,
- * `UserTests.swift`. `*Spec` is NOT a test convention in these languages —
- * `V1PodSpec.java`, `CopySpec.java`, `OpenApiSpec.kt` are product classes — so
- * ScalaTest's `UserSpec.scala` is recognised by its `src/test/` directory.
+ * `_test` / `_unittest` file suffixes in languages whose runners use them: Deno
+ * (`login_test.ts`), gtest (`parser_test.cc`, `parser_unittest.cc`), Dart
+ * (`login_test.dart`), Elixir (`login_test.exs`).
+ *
+ * Class-per-file names such as `UserTest.java` are deliberately NOT a rule:
+ * JUnit, Kotlin, PHPUnit and XCTest all keep tests under a `test/`, `tests/`
+ * or `Tests/` directory (matched above), while `SpeedTest.java` or
+ * `LoadTest.cs` outside one is product code. `*Spec` names are product classes
+ * (`V1PodSpec.java`, `OpenApiSpec.kt`); ScalaTest's `UserSpec.scala` is
+ * recognised by its `src/test/` directory.
  */
-const CLASS_TEST_FILE = /Tests?\.(?:java|kt|kts|cs|php|swift)$/;
+const SUFFIX_TEST_FILE = /_(?:test|unittest)\.(?:[cm]?[jt]sx?|cc|cpp|cxx|c|dart|exs?)$/;
 
 /** Cypress specs: `login.cy.ts`. Script extensions only — `about.cy.md` is a Welsh page. */
 const CY_TEST_FILE = /\.cy\.[cm]?[jt]sx?$/;
 
-/** Rust keeps unit tests inside the source file; an added `#[test]` or `#[cfg(test)]` is a test edit. */
-const RUST_INLINE_TEST = /^\s*#\[(?:test|cfg\(test\))\]/;
+/**
+ * Rust keeps unit tests inside the source file; an added `#[test]`,
+ * `#[cfg(test)]`, or an attribute-macro test (`#[tokio::test]`, `#[rstest]`,
+ * `#[test_case(…)]`, `#[wasm_bindgen_test]`, `#[proptest]`) is a test edit.
+ */
+const RUST_INLINE_TEST = /^\s*#\[(?:cfg\(test\)|(?:\w+::)*(?:test|rstest|test_case|proptest|quickcheck|wasm_bindgen_test)\b)/;
 
-/** Python test modules, both orderings: `tests/test_login.py`, `login_test.py`. */
-const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py)$/;
+/** Python test modules, both orderings plus Django's default `app/tests.py`: `tests/test_login.py`, `login_test.py`. */
+const PY_TEST_FILE = /(?:^|\/)(?:test_[^/]*\.py|[^/]*_test\.py|tests\.py)$/;
 
 /** Python shared test fixtures/plugins at any depth: `tests/conftest.py`. */
 const PY_CONFTEST = /(?:^|\/)conftest\.py$/;
@@ -241,11 +269,16 @@ export function isTestFile(path: string): boolean {
   if (PY_TEST_FILE.test(p)) return true;
   if (PY_CONFTEST.test(p)) return true;
   if (JS_TEST_FILE.test(p)) return true;
-  if (RB_TEST_FILE.test(p)) return true;
-  if (CLASS_TEST_FILE.test(p)) return true;
   if (CY_TEST_FILE.test(p)) return true;
+  if (SUFFIX_TEST_FILE.test(p)) return true;
+  if (RB_SPEC_HELPER.test(p)) return true;
   const segments = dirSegments(p);
   if (segments.some(isTestDirSegment)) return true;
+  if (segments.some((segment) => DOTNET_TEST_PROJECT.test(segment))) return true;
+  if (segments.some((segment) => segment.toLowerCase() === 'spec')) {
+    if (RB_SPEC_FILE.test(p)) return true;
+    if (segments.some((segment) => RB_SPEC_SUPPORT.has(segment.toLowerCase()))) return true;
+  }
   return SOURCE_EXT.test(p) && segments.some(isE2eDirSegment);
 }
 
@@ -269,7 +302,7 @@ export function isSnapshotFile(path: string): boolean {
   const p = normalize(path);
   if (SNAPSHOT_EXT.test(p)) return true;
   const segments = dirSegments(p);
-  if (segments.includes('testdata')) return true;
+  if (segments.some((segment) => segment.toLowerCase() === 'testdata')) return true;
   if (segments.includes('fixtures')) {
     // `fixtures/` only counts under a test dir: `test/fixtures/user.json` yes, `src/fixtures/flags.json` no.
     return segments.some(isTestDirSegment);

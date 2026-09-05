@@ -24,8 +24,19 @@ describe('isTestFile across ecosystems', () => {
       'Tests/FooTests/BarTests.swift',
       'src/Foo/Tests/BarTest.php',
       'src/test/java/com/x/UserTest.java',
-      'src/main/kotlin/UserTest.kt',
       'Api.Tests/UserTests.cs',
+      'Api.Test/UserTests.cs',
+      'spec/spec_helper.rb',
+      'spec/rails_helper.rb',
+      'spec/support/factories/users.rb',
+      'app/tests.py',
+      'src/login_test.ts',
+      'src/parser_test.cc',
+      'src/parser_unittest.cc',
+      'lib/login_test.dart',
+      'integration_test/app_test.dart',
+      'test_driver/app.dart',
+      'app/src/androidTest/java/com/x/LoginTest.kt',
       'src/test/scala/UserSpec.scala',
       'cypress/e2e/login.cy.ts',
       'e2e/checkout.ts',
@@ -60,6 +71,13 @@ describe('isTestFile across ecosystems', () => {
       'internal/e2e/README.md',
       'e2e/fixtures/users.json',
       'cypress.config.ts',
+      // class-per-file names outside a test directory are product code
+      'src/main/java/com/x/SpeedTest.java',
+      'src/main/kotlin/UserTest.kt',
+      'Services/LoadTest.cs',
+      // snake_case product files that happen to end in _test / _spec
+      'app/models/blood_test.rb',
+      'app/services/build_spec.rb',
     ]) {
       expect(isTestFile(path), path).toBe(false);
     }
@@ -71,6 +89,11 @@ describe('Rust inline tests', () => {
 
   it('counts a source file that gains #[test] / #[cfg(test)] as a test edit', () => {
     expect(hasInlineTests('src/lib.rs', patch)).toBe(true);
+    // attribute-macro tests added inside an existing cfg(test) module
+    expect(hasInlineTests('src/lib.rs', '@@ -9 +9,2 @@\n+    #[tokio::test]\n+    async fn fetches() {}')).toBe(true);
+    expect(hasInlineTests('src/lib.rs', '@@ -9 +9,2 @@\n+    #[rstest]\n+    fn cases() {}')).toBe(true);
+    expect(hasInlineTests('src/lib.rs', '@@ -9 +9,2 @@\n+    #[test_case(1, 2)]\n+    fn adds() {}')).toBe(true);
+    expect(hasInlineTests('src/lib.rs', '@@ -9 +9 @@\n+    #[derive(Debug)]')).toBe(false);
     expect(hasInlineTests('src/lib.ts', patch)).toBe(false);
     expect(hasInlineTests('src/lib.rs', '@@ -1 +1 @@\n-fn a() {}\n+fn a() { }')).toBe(false);
     expect(hasInlineTests('src/lib.rs', undefined)).toBe(false);

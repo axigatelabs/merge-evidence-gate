@@ -207,6 +207,12 @@ export function renderComment(receipt: Receipt, opts?: RenderOptions): RenderedC
   const body: string[] = [];
   const claims = claimLines(receipt, unverifiable);
   body.push('**Claims vs observed**');
+  if (receipt.observed.no_test_command === true && claims.length > 0) {
+    body.push(
+      '- no test command found — claims about the run are unverifiable; ' +
+        (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'),
+    );
+  }
   if (receipt.observed.no_evidence === true) {
     body.push(
       `- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +

@@ -28,9 +28,9 @@ const repos = existsSync(root) ? readdirSync(root).filter((d) => !d.startsWith('
 // src/core/reconcile/reconcile.ts; test/reconcile/no-evidence-and-c7.test.ts
 // fails if they drift.
 const TESTS_ADDED =
-  /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/\w+)?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|(?:unit|integration|regression|e2e|end-to-end)\s+tests?|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
+  /\b(?:added|adds|wrote|written|created|introduced|implemented)(?:\/(?:updated|extended|adjusted|improved|expanded|fixed))?(?:\s+(?:a|an|the|some|new|more|additional|meaningful|comprehensive|thorough|unit|integration|regression|e2e|end-to-end|corresponding|relevant|appropriate|missing|extra|basic|initial|proper|automated|dedicated|targeted|several|two|three|few))*\s+(?:tests|test\s+cases?|test\s+coverage|test\s+for)\b|^\s*(?:new|additional|more|missing|corresponding|unit|integration|regression|e2e)?\s*tests\s+(?:were\s+|have\s+been\s+)?(?:added|created)\b/i;
 const NEGATED =
-  /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bor\s+(?:this|the|it|we|i)\b/i;
+  /\b(?:no|not|none|without|n\/a|todo|later|follow-?up|exempt|optional|unless)\b|n't\b|\b(?:if|where|when|as)\s+(?:applicable|appropriate|needed|necessary|relevant|required)\b|\bif\s+\w+ing\b|\bonly\s+if\b|\bor\s+(?:this|the|it|we|i)\b|\b(?:another|separate|previous|earlier|prior|different|other|upstream)\s+(?:PR|pull\s+request|change|changeset|commit|branch)\b|\bin\s+#\d+|:\s*(?:0|zero|none)\b/i;
 const isCheckable = (c) =>
   c.kind === 'command' ||
   c.kind === 'count' ||
@@ -71,8 +71,12 @@ for (const key of repos) {
     for (const c of receipt.claims ?? []) {
       if (!isCheckable(c)) { r.stated++; continue; }
       r.checkable++;
-      if (named.has(c.id)) r.contradicted++;
-      else if (unsupported.has(c.id) || (runInconclusive && c.kind !== 'checkbox')) r.unsupported++;
+      // A run that produced no evidence cannot confirm or contradict a claim
+      // ABOUT the run (command, count), whatever an older receipt recorded;
+      // a "tests added" box is decided by the diff and is unaffected.
+      if (runInconclusive && c.kind !== 'checkbox') r.unsupported++;
+      else if (named.has(c.id)) r.contradicted++;
+      else if (unsupported.has(c.id)) r.unsupported++;
       else r.confirmed++;
     }
     for (const d of receipt.discrepancies ?? []) bump(r.checks, d.check);

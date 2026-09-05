@@ -161,7 +161,7 @@ First hit wins (`detectTestCommand` in `src/core/runners/detect.ts`):
 2. `test-command:` in `.merge-evidence.yml`;
 3. the `test` target in a `Makefile`;
 4. `scripts.test` in `package.json` — invoked through the package manager implied
-   by the lockfile present (`pnpm-lock.yaml` → `pnpm test --`, `yarn.lock` →
+   by the lockfile present (`pnpm-lock.yaml` → `pnpm test`, `yarn.lock` →
    `yarn test`, `bun.lockb` → `bun run test`, otherwise `npm test --`);
 5. `go.mod` → `go test ./...`;
 6. `pyproject.toml`, `pytest.ini`, or `setup.cfg` → `pytest`;

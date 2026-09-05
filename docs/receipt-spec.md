@@ -53,7 +53,7 @@ and removals require a new major (`/v2`).
     "command": "go test -json -count=1 ./...",
     "exit_code": 0,
     "toolchain": { "go": "1.25.1" },
-    "totals": { "run": 412, "passed": 412, "failed": 0, "skipped": 3, "retried": 0 },
+    "totals": { "run": 412, "passed": 412, "failed": 0, "skipped": 0, "retried": 0 },
     "tests_digest": "sha256:…",
     "duration_s": 118
   },
