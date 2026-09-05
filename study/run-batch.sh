@@ -31,7 +31,15 @@ echo "batch: $REPO — $total PR(s) to run, $PAR at a time, ${MEG_MEM} per conta
 [ "$total" -gt 0 ] || exit 0
 
 export REPO TEST_CMD HERE OUT
+# xargs runs as our child and dies with us: a batch stopped with Ctrl-C or
+# `kill` must not leave an orphaned xargs spawning the rest of the list
+# (it did once, alongside a re-run, doubling the load and racing on volumes).
+# Use study/stop-batch.sh to stop a batch and its containers cleanly.
 echo "$todo" | xargs -P "$PAR" -I{} bash -c '
   if "$HERE/run-one.sh" "$REPO" "{}" "$TEST_CMD"; then :; else echo "{}" >> "$OUT/FAILED"; fi
-'
+' &
+XARGS=$!
+trap 'kill "$XARGS" 2>/dev/null; pkill -P "$XARGS" 2>/dev/null; exit 130' INT TERM
+wait "$XARGS" || true
+trap - INT TERM
 echo "batch done: $(ls "$OUT"/*.json 2>/dev/null | grep -vc meta) receipts, $(wc -l < "$OUT/FAILED" 2>/dev/null || echo 0) harness failures" >&2

@@ -41,7 +41,12 @@ echo "[$KEY] re-running $COUNT inconclusive/missing PR(s), $PAR at a time, ${MEG
 [ "$COUNT" -gt 0 ] || exit 0
 
 export REPO TEST_CMD HERE OUT
+# See run-batch.sh: xargs is our child and dies with us.
 xargs -P "$PAR" -I{} bash -c '
   if "$HERE/run-one.sh" "$REPO" "{}" "$TEST_CMD"; then :; else echo "{}" >> "$OUT/FAILED"; fi
-' < "$HERE/work/$KEY.rerun.txt"
+' < "$HERE/work/$KEY.rerun.txt" &
+XARGS=$!
+trap 'kill "$XARGS" 2>/dev/null; pkill -P "$XARGS" 2>/dev/null; exit 130' INT TERM
+wait "$XARGS" || true
+trap - INT TERM
 echo "[$KEY] rerun done; receipts: $(ls "$OUT"/*.meta.json 2>/dev/null | wc -l | tr -d ' '), harness failures: $(wc -l < "$OUT/FAILED" 2>/dev/null || echo 0)" >&2
