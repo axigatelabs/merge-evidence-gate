@@ -9,7 +9,14 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.8.0 — unreleased
+## 0.8.1 — 2026-09-05
+
+### Changed
+
+- `action.yml` description shortened to fit the GitHub Marketplace's 125-character
+  limit. No behaviour change.
+
+## 0.8.0 — 2026-09-05
 
 ### Changed
 
