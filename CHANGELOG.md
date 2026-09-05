@@ -79,6 +79,16 @@ review of the fix.
   added"); every other checkbox is counted as stated, not checkable, and a
   run-inconclusive PR still contributes its diff-based findings.
 
+### Fixed
+
+- **The published Action crashed on load.** `dist/index.js` was built with
+  ncc's `--source-map`, which prepends `require('./sourcemap-register.js')`;
+  that helper is gitignored, so every `uses: …@v1` run since 0.1.0 died with
+  `MODULE_NOT_FOUND` before reading the pull request. The action bundle is now
+  built without source maps, CI fails when the committed bundle differs from a
+  fresh build or does not load on its own, and the repository's own dogfood
+  workflow exercises the bundle on every pull request.
+
 ### Known limitations
 
 - A bare `pnpm test` claim in a monorepo maps to the root run, although the

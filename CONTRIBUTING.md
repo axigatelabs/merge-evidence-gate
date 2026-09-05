@@ -41,7 +41,11 @@ runs once per release, a broken commit on `build` is not caught by a robot — i
 is caught by whoever pulls next.
 
 `dist/` is gitignored on `build` and committed only at release time, so never
-commit a bundle from a task branch.
+commit a bundle from a task branch. The committed `dist/index.js` must be
+byte-identical to a fresh `npm run build` and must load with no sibling files
+(`node dist/index.js` outside a pull-request event prints a notice and exits
+0); CI checks both, because 0.1.0 shipped a bundle that required a gitignored
+`sourcemap-register.js` and crashed on every install.
 
 ## Rules for changes
 
