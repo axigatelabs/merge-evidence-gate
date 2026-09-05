@@ -84292,6 +84292,12 @@ function parsePolicyYaml(text) {
                     policy.testCommand = value;
                 break;
             }
+            case 'base-comparison': {
+                const value = scalar(entry.value).toLowerCase();
+                if (value === 'auto' || value === 'never')
+                    policy.baseComparison = value;
+                break;
+            }
             case 'agents-only': {
                 const value = parseBoolean(entry.value);
                 if (value !== undefined)
@@ -84403,6 +84409,7 @@ function buildReceipt(input) {
             duration_s: Math.round(observed.durationMs / 1000),
             ...(noTestCommand ? { no_test_command: true } : {}),
             ...((0, reconcile_js_1.hasNoEvidence)(observed) ? { no_evidence: true } : {}),
+            ...baselineProjection(observed),
         },
         diff: {
             tests: {
@@ -84421,6 +84428,22 @@ function buildReceipt(input) {
         verdict,
         policy_version: policy.version,
         signature: { predicate_type: exports.PREDICATE_TYPE },
+    };
+}
+/** The base run, with head failures split into introduced vs already-failing. */
+function baselineProjection(observed) {
+    const baseline = observed.baseline;
+    const split = (0, reconcile_js_1.partitionFailures)(observed);
+    if (baseline === undefined || split === undefined)
+        return {};
+    return {
+        baseline: {
+            sha: baseline.sha,
+            exit_code: baseline.exitCode,
+            totals: { ...baseline.totals },
+            pre_existing: split.preExisting.length,
+            introduced: sortUnique(split.introduced),
+        },
     };
 }
 /** Stable key order for the toolchain map, so JSON.stringify is reproducible. */
@@ -84455,6 +84478,8 @@ function sortKeys(record) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.TESTS_ADDED_NEGATION = exports.TESTS_ADDED_LABEL = void 0;
 exports.hasNoEvidence = hasNoEvidence;
+exports.partitionFailures = partitionFailures;
+exports.failureIntroduced = failureIntroduced;
 exports.claimsTestsAdded = claimsTestsAdded;
 exports.missingAtHead = missingAtHead;
 exports.decideVerdict = decideVerdict;
@@ -84595,6 +84620,37 @@ function hasNoEvidence(observed) {
         return true;
     return observed.exitCode >= KILLED_EXIT && !OPAQUE_RUNNERS.has(observed.runner);
 }
+/** Head failures split by whether the base commit shows them too; undefined without a baseline. */
+function partitionFailures(observed) {
+    const baseline = observed.baseline;
+    if (baseline === undefined)
+        return undefined;
+    const atBase = new Set(baseline.failed);
+    const failed = sorted(observed.tests.filter((test) => test.status === 'failed').map((test) => test.id));
+    return {
+        introduced: failed.filter((id) => !atBase.has(id)),
+        preExisting: failed.filter((id) => atBase.has(id)),
+    };
+}
+/**
+ * True when a failed head run is this pull request's doing: some failing test
+ * passes (or does not exist) at base, or the run failed as a whole — nothing
+ * per-test to compare — while the base run succeeded. Without a baseline, or
+ * with one that produced no evidence, the head failure stands as observed.
+ */
+function failureIntroduced(observed) {
+    const baseline = observed.baseline;
+    const split = partitionFailures(observed);
+    if (baseline === undefined || split === undefined)
+        return true;
+    if (baseline.noEvidence === true)
+        return true;
+    if (split.introduced.length > 0)
+        return true;
+    if (split.preExisting.length === 0)
+        return baseline.exitCode === 0;
+    return false;
+}
 function commandParsed(claim) {
     return claim.parsed.kind === 'command' ? claim.parsed : undefined;
 }
@@ -84624,7 +84680,18 @@ function checkC1(claims, observed, policy) {
         }
         if (observed.exitCode === 0)
             continue;
-        const failed = sorted(observed.tests.filter((test) => test.status === 'failed').map((test) => test.id));
+        // The same command fails at the base commit in the same way: the
+        // repository fails on a clean runner regardless of this PR. The claim is
+        // "not reproduced" here, which is unverifiable — never a contradiction.
+        if (!failureIntroduced(observed)) {
+            unverifiable.push(claim.id);
+            continue;
+        }
+        const split = partitionFailures(observed);
+        const failed = split === undefined
+            ? sorted(observed.tests.filter((test) => test.status === 'failed').map((test) => test.id))
+            : split.introduced;
+        const baseline = observed.baseline;
         discrepancies.push({
             check: 'C1',
             severity: (0, policy_js_1.resolveSeverity)('C1', policy),
@@ -84634,7 +84701,12 @@ function checkC1(claims, observed, policy) {
                 `claimed command: ${parsed.raw}`,
                 `observed command: ${observed.command}`,
                 `observed exit_code=${observed.exitCode}`,
-                ...capped(failed.map((id) => `failed: ${id}`), MAX_EVIDENCE),
+                ...capped(failed.map((id) => `${split === undefined ? 'failed' : 'introduced'}: ${id}`), MAX_EVIDENCE),
+                ...(baseline === undefined || split === undefined
+                    ? []
+                    : [
+                        `base ${baseline.sha.slice(0, 7)}: exit_code=${baseline.exitCode}, ${split.preExisting.length} of these failures also present there`,
+                    ]),
             ],
         });
     }
@@ -85060,13 +85132,23 @@ function claimLines(receipt, unverifiable) {
         if (command !== undefined) {
             rendered.add(claim.id);
             const label = `\`${command.raw}\``;
-            if (unmapped.has(claim.id)) {
-                lines.push(clamp(`- ${label} — unverifiable`, MAX_LINE_CHARS));
-                continue;
-            }
+            const baseline = receipt.observed.baseline;
             const failure = receipt.discrepancies.find((d) => d.check === 'C1' && d.claim === claim.id);
             if (failure !== undefined) {
-                lines.push(clamp(`- ${label} — ran ✘  exit ${receipt.observed.exit_code}, ${totals.failed} failed`, MAX_LINE_CHARS));
+                const attribution = baseline === undefined
+                    ? ''
+                    : ` — ${baseline.introduced.length} introduced by this PR, ${baseline.pre_existing} also failing at base ${baseline.sha.slice(0, 7)}`;
+                lines.push(clamp(`- ${label} — ran ✘  exit ${receipt.observed.exit_code}, ${totals.failed} failed${attribution}`, MAX_LINE_CHARS));
+                continue;
+            }
+            if (unmapped.has(claim.id) && baseline !== undefined && receipt.observed.exit_code !== 0) {
+                // Mapped, failed, and excused by the base run: the repository fails on
+                // a clean runner with or without this PR.
+                lines.push(clamp(`- ${label} — ran ✘  exit ${receipt.observed.exit_code}, ${totals.failed} failed — all also fail at base ${baseline.sha.slice(0, 7)}; nothing introduced by this PR`, MAX_LINE_CHARS));
+                continue;
+            }
+            if (unmapped.has(claim.id)) {
+                lines.push(clamp(`- ${label} — unverifiable`, MAX_LINE_CHARS));
                 continue;
             }
             lines.push(clamp(`- ${label} — ran ✔  ${totals.passed}/${totals.run} pass`, MAX_LINE_CHARS));
@@ -85152,6 +85234,14 @@ function renderComment(receipt, opts) {
     if (receipt.observed.no_test_command === true && claims.length > 0) {
         body.push('- no test command found — claims about the run are unverifiable; ' +
             (receipt.verdict === 'NEUTRAL' ? 'the gate abstains' : 'the verdict rests on the diff alone'));
+    }
+    const baseline = receipt.observed.baseline;
+    if (baseline !== undefined && !receipt.claims.some((c) => c.parsed.kind === 'command')) {
+        // No command claim carries the comparison, so say it once up front.
+        body.push(`- the suite fails at head (${receipt.observed.totals.failed} failed) and at base ${baseline.sha.slice(0, 7)} (${baseline.totals.failed} failed): ` +
+            (baseline.introduced.length === 0
+                ? 'nothing introduced by this PR'
+                : `${baseline.introduced.length} introduced by this PR`));
     }
     if (receipt.observed.no_evidence === true) {
         body.push(`- the re-run produced no per-test evidence (exit ${receipt.observed.exit_code}) — ` +
@@ -86163,11 +86253,16 @@ function readInputs() {
     if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human') {
         core.warning(`input 'fail-on': expected 'fail' or 'needs-human', got '${failOnRaw}' — using 'fail'`);
     }
+    const baseRaw = core.getInput('base-comparison').trim().toLowerCase();
+    if (baseRaw !== '' && baseRaw !== 'auto' && baseRaw !== 'never') {
+        core.warning(`input 'base-comparison': expected 'auto' or 'never', got '${baseRaw}' — using 'auto'`);
+    }
     return {
         token: core.getInput('github-token'),
         testCommand: core.getInput('test-command').trim(),
         agentsOnly: optionalBoolInput('agents-only'),
         failOn: failOnRaw === 'needs-human' ? 'needs-human' : 'fail',
+        baseComparison: baseRaw === 'never' ? 'never' : 'auto',
         comment: boolInput('comment', true),
         uploadReceipt: boolInput('upload-receipt', true),
         policyFile: core.getInput('policy-file').trim() || '.merge-evidence.yml',
@@ -86313,6 +86408,7 @@ async function run() {
         policy,
         testCommand: inputs.testCommand,
         ...(inputs.agentsOnly === undefined ? {} : { agentsOnly: inputs.agentsOnly }),
+        baseComparison: inputs.baseComparison,
     });
     if (result.skipped === 'not-agent') {
         setOutputs('NEUTRAL', 0, '');
@@ -86410,6 +86506,9 @@ exports.writeSafely = writeSafely;
 exports.collectDiff = collectDiff;
 exports.changedFiles = changedFiles;
 exports.evaluate = evaluate;
+exports.manifestsDiffer = manifestsDiffer;
+exports.needsBaseline = needsBaseline;
+exports.runBaseline = runBaseline;
 exports.installOnly = installOnly;
 /**
  * The Merge-Evidence pipeline, with no GitHub in it.
@@ -86440,6 +86539,7 @@ const env_js_1 = __nccwpck_require__(89069);
 const index_js_1 = __nccwpck_require__(43217);
 const index_js_2 = __nccwpck_require__(2899);
 const index_js_3 = __nccwpck_require__(876);
+const reconcile_js_1 = __nccwpck_require__(84888);
 const index_js_4 = __nccwpck_require__(94375);
 /** Where the raw combined stdout/stderr of the test run is kept. */
 exports.RUN_LOG = `${index_js_4.REPORT_DIR}/run.log`;
@@ -86619,9 +86719,12 @@ async function ensureHeadCheckout(workDir, headSha, notes) {
     core.info(`checkout: now at ${headSha.slice(0, 7)}`);
 }
 /** The frozen-install commands this checkout needs, in the order to run them. */
-function installPlan(workDir, files) {
+function installPlan(workDir, files, options = {}) {
     const plan = [];
-    if (files['package.json'] !== undefined && !(0, node_fs_1.existsSync)((0, node_path_1.join)(workDir, 'node_modules'))) {
+    // `force` installs even when a dependency tree is already present — used when
+    // the checkout moved to a commit whose manifests differ from the installed ones.
+    const fresh = (dir) => options.force === true || !(0, node_fs_1.existsSync)((0, node_path_1.join)(workDir, dir));
+    if (files['package.json'] !== undefined && fresh('node_modules')) {
         if (files['pnpm-lock.yaml'] !== undefined)
             plan.push({ command: 'pnpm i --frozen-lockfile', frozen: true });
         else if (files['yarn.lock'] !== undefined)
@@ -86635,7 +86738,7 @@ function installPlan(workDir, files) {
         else
             plan.push({ command: 'npm install --no-audit --no-fund', frozen: false });
     }
-    if (files['go.mod'] !== undefined && !(0, node_fs_1.existsSync)((0, node_path_1.join)(workDir, 'vendor'))) {
+    if (files['go.mod'] !== undefined && fresh('vendor')) {
         plan.push({ command: 'go mod download', frozen: true });
     }
     if (files['uv.lock'] !== undefined) {
@@ -86654,8 +86757,8 @@ function installPlan(workDir, files) {
  * territory the receipt exists to surface. So it is recorded and the run
  * continues — a partial answer beats no answer.
  */
-async function installDependencies(workDir, files, env, notes) {
-    for (const step of installPlan(workDir, files)) {
+async function installDependencies(workDir, files, env, notes, options = {}) {
+    for (const step of installPlan(workDir, files, options)) {
         core.info(`install: ${step.command}`);
         const result = await shell(step.command, { cwd: workDir, env });
         if (result.code !== 0) {
@@ -86968,6 +87071,25 @@ async function evaluate(opts) {
         observed = await runTests(detected, workDir, files, notes, {
             ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
         });
+        // A failed head run is compared against the base commit before it can be
+        // held against the PR: many repositories fail some tests on a clean runner
+        // (network, keys, platform), and those failures are not this change's.
+        const mode = opts.baseComparison ?? policy.baseComparison ?? 'auto';
+        if (mode !== 'never' && needsBaseline(observed)) {
+            if (pr.baseSha === '') {
+                const note = 'baseline: no base commit given, so the head failure could not be compared against base';
+                core.info(note);
+                notes.push(note);
+            }
+            else {
+                core.info(`baseline: the head run failed (exit ${observed.exitCode}) — running the same command at base ${pr.baseSha.slice(0, 7)}`);
+                const baseline = await runBaseline(detected, workDir, pr, files, notes, {
+                    ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
+                });
+                if (baseline !== undefined)
+                    observed = { ...observed, baseline };
+            }
+        }
     }
     const diff = await collectDiff(workDir, pr, policy, notes);
     const { discrepancies, verdict, unverifiable } = (0, index_js_3.reconcile)({ pr, claims, observed, diff, policy });
@@ -86982,6 +87104,135 @@ async function evaluate(opts) {
         unverifiable,
         notes,
         receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
+    };
+}
+/** Manifests whose change between base and head means base needs its own install. */
+const DEPENDENCY_MANIFESTS = [
+    'package.json',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'bun.lockb',
+    'bun.lock',
+    'go.mod',
+    'go.sum',
+    'pyproject.toml',
+    'uv.lock',
+    'poetry.lock',
+    'requirements.txt',
+    'Cargo.toml',
+    'Cargo.lock',
+];
+/** True when any dependency manifest differs between two checkouts' manifest maps. */
+function manifestsDiffer(a, b) {
+    return DEPENDENCY_MANIFESTS.some((name) => a[name] !== b[name]);
+}
+/**
+ * True when the head run failed in a way a base run could explain: it ran, it
+ * produced evidence, and it did not pass. A passing run is never re-run at base
+ * — the comparison can only ever excuse a failure, never manufacture one.
+ */
+function needsBaseline(observed) {
+    return observed.noTestCommand !== true && observed.exitCode !== 0 && !(0, reconcile_js_1.hasNoEvidence)(observed);
+}
+/**
+ * Run the detected command at the base commit, in the same checkout and
+ * environment, and return what failed there. The head run's artifacts are
+ * kept aside and restored; the checkout always returns to head, and when the
+ * dependency manifests differ the base gets its own frozen install and head
+ * is reinstalled afterwards. Anything that stops the comparison is a note,
+ * never a failure: the head result then stands as observed.
+ */
+async function runBaseline(detected, workDir, pr, headFiles, notes, options = {}) {
+    const sha = pr.baseSha;
+    const short = sha.slice(0, 7);
+    const giveUp = (reason) => {
+        const note = `baseline: ${reason}; the head failure could not be compared against base ${short}`;
+        core.warning(note);
+        notes.push(note);
+        return undefined;
+    };
+    const present = await git(workDir, 'cat-file', '-e', `${sha}^{commit}`);
+    if (present.code !== 0)
+        await git(workDir, 'fetch', '--no-tags', '--depth=1', 'origin', sha);
+    // Keep the head run's reports: the base run writes to the same paths.
+    const reportDir = (0, node_path_1.join)(workDir, index_js_4.REPORT_DIR);
+    const headKeep = `${reportDir}.head`;
+    (0, node_fs_1.rmSync)(headKeep, { recursive: true, force: true });
+    if ((0, node_fs_1.existsSync)(reportDir))
+        (0, node_fs_1.renameSync)(reportDir, headKeep);
+    for (const nested of findNestedReports(workDir, detected.reportPath))
+        (0, node_fs_1.rmSync)(nested, { force: true });
+    const restore = async () => {
+        const back = await git(workDir, 'checkout', '--force', '--detach', pr.headSha);
+        const baseKeep = `${reportDir}.base`;
+        (0, node_fs_1.rmSync)(baseKeep, { recursive: true, force: true });
+        if ((0, node_fs_1.existsSync)(reportDir))
+            (0, node_fs_1.renameSync)(reportDir, baseKeep);
+        if ((0, node_fs_1.existsSync)(headKeep))
+            (0, node_fs_1.renameSync)(headKeep, reportDir);
+        return back.code === 0;
+    };
+    const checkout = await git(workDir, 'checkout', '--force', '--detach', sha);
+    if (checkout.code !== 0) {
+        await restore();
+        return giveUp(`could not check out base ${short}`);
+    }
+    const env = mergedEnv(detected.env);
+    const baseFiles = (0, env_js_1.readManifests)(workDir);
+    const depsChanged = manifestsDiffer(headFiles, baseFiles);
+    if (depsChanged && options.skipInstall === true) {
+        await restore();
+        return giveUp('dependency manifests differ between base and head and installs are disabled');
+    }
+    if (depsChanged) {
+        core.info('baseline: dependency manifests differ from head — installing the base dependencies');
+        await installDependencies(workDir, baseFiles, env, notes, { force: true });
+    }
+    (0, node_fs_1.mkdirSync)(reportDir, { recursive: true });
+    core.info(`baseline: run: ${detected.command} @ ${short}`);
+    const started = Date.now();
+    const result = await shell(detected.command, { cwd: workDir, env });
+    core.info(`baseline: run: exit ${result.code} in ${Math.round((Date.now() - started) / 1000)}s`);
+    if (detected.family === 'go')
+        writeSafely((0, node_path_1.join)(workDir, detected.reportPath), result.stdout);
+    const baseNotes = [];
+    const parsed = parseReport(detected, workDir, result.stdout, baseNotes);
+    for (const note of baseNotes)
+        notes.push(`baseline: ${note}`);
+    const signal = signalOf(result);
+    const restored = await restore();
+    if (depsChanged) {
+        core.info('baseline: reinstalling the head dependencies');
+        await installDependencies(workDir, headFiles, env, notes, { force: true });
+    }
+    if (!restored) {
+        const note = `baseline: could not return the checkout to head ${pr.headSha.slice(0, 7)} after the base run`;
+        core.warning(note);
+        notes.push(note);
+    }
+    const noEvidence = (0, reconcile_js_1.hasNoEvidence)({
+        command: detected.command,
+        runner: detected.family,
+        exitCode: result.code,
+        durationMs: 0,
+        toolchain: {},
+        totals: parsed.totals,
+        tests: parsed.tests,
+        ...(parsed.reportMissing === true ? { reportMissing: true } : {}),
+        ...(signal === undefined ? {} : { signal }),
+    });
+    const failed = parsed.tests
+        .filter((test) => test.status === 'failed')
+        .map((test) => test.id)
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    core.info(`baseline: ${parsed.totals.run} tests, ${parsed.totals.failed} failed at base${noEvidence ? ' (no per-test evidence)' : ''}`);
+    return {
+        sha,
+        exitCode: result.code,
+        totals: parsed.totals,
+        failed,
+        ...(noEvidence ? { noEvidence: true } : {}),
     };
 }
 /**

@@ -89,6 +89,9 @@ are listed in `study/out/<owner>__<repo>/FAILED`.
 
 ## Known limits
 
+- Base comparison runs in phase 2 too (offline): the base commit's blobs are
+  fetched in phase 1, and a PR whose dependency manifests changed skips the
+  base run (installs are disabled offline) — the receipt's notes say so.
 - One test command per PR: the first claimed command with a known runner, else
   the repository default. A PR that claims several commands has only the first
   verified in v1.

@@ -88,7 +88,9 @@ docker run --rm --name "meg-$KEY-$NUM-p1" "${RES_ARGS[@]}" "${CACHE_ARGS[@]}" -v
     git clone -q --no-checkout --filter=blob:none https://github.com/$REPO.git /work/repo
     cd /work/repo
     git fetch -q --depth=1 origin $HEAD && git fetch -q --depth=1 origin $BASE
-    git checkout -q $HEAD
+    # A blobless clone fetches file contents lazily; touch the base once while
+    # the network is on so phase 2 (offline) can check it out for the base run.
+    git checkout -q $BASE && git checkout -q $HEAD
     # pnpm only honours settings from its own config (not the npm env vars).
     # Large tarballs (onnxruntime, couchbase, turbo binaries) blow the 60 s
     # default fetch timeout from inside Docker, so give fetches real room.

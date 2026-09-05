@@ -176,6 +176,36 @@ export function hasNoEvidence(observed: ObservedRun): boolean {
   return observed.exitCode >= KILLED_EXIT && !OPAQUE_RUNNERS.has(observed.runner);
 }
 
+/** Head failures split by whether the base commit shows them too; undefined without a baseline. */
+export function partitionFailures(
+  observed: ObservedRun,
+): { introduced: string[]; preExisting: string[] } | undefined {
+  const baseline = observed.baseline;
+  if (baseline === undefined) return undefined;
+  const atBase = new Set(baseline.failed);
+  const failed = sorted(observed.tests.filter((test) => test.status === 'failed').map((test) => test.id));
+  return {
+    introduced: failed.filter((id) => !atBase.has(id)),
+    preExisting: failed.filter((id) => atBase.has(id)),
+  };
+}
+
+/**
+ * True when a failed head run is this pull request's doing: some failing test
+ * passes (or does not exist) at base, or the run failed as a whole — nothing
+ * per-test to compare — while the base run succeeded. Without a baseline, or
+ * with one that produced no evidence, the head failure stands as observed.
+ */
+export function failureIntroduced(observed: ObservedRun): boolean {
+  const baseline = observed.baseline;
+  const split = partitionFailures(observed);
+  if (baseline === undefined || split === undefined) return true;
+  if (baseline.noEvidence === true) return true;
+  if (split.introduced.length > 0) return true;
+  if (split.preExisting.length === 0) return baseline.exitCode === 0;
+  return false;
+}
+
 function commandParsed(claim: Claim): ParsedCommand | undefined {
   return claim.parsed.kind === 'command' ? claim.parsed : undefined;
 }
@@ -212,9 +242,20 @@ function checkC1(
     }
     if (observed.exitCode === 0) continue;
 
-    const failed = sorted(
-      observed.tests.filter((test) => test.status === 'failed').map((test) => test.id),
-    );
+    // The same command fails at the base commit in the same way: the
+    // repository fails on a clean runner regardless of this PR. The claim is
+    // "not reproduced" here, which is unverifiable — never a contradiction.
+    if (!failureIntroduced(observed)) {
+      unverifiable.push(claim.id);
+      continue;
+    }
+
+    const split = partitionFailures(observed);
+    const failed =
+      split === undefined
+        ? sorted(observed.tests.filter((test) => test.status === 'failed').map((test) => test.id))
+        : split.introduced;
+    const baseline = observed.baseline;
     discrepancies.push({
       check: 'C1',
       severity: resolveSeverity('C1', policy),
@@ -224,7 +265,12 @@ function checkC1(
         `claimed command: ${parsed.raw}`,
         `observed command: ${observed.command}`,
         `observed exit_code=${observed.exitCode}`,
-        ...capped(failed.map((id) => `failed: ${id}`), MAX_EVIDENCE),
+        ...capped(failed.map((id) => `${split === undefined ? 'failed' : 'introduced'}: ${id}`), MAX_EVIDENCE),
+        ...(baseline === undefined || split === undefined
+          ? []
+          : [
+              `base ${baseline.sha.slice(0, 7)}: exit_code=${baseline.exitCode}, ${split.preExisting.length} of these failures also present there`,
+            ]),
       ],
     });
   }

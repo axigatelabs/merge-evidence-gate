@@ -19,7 +19,7 @@
  * may fail a run, and a claim the gate could not verify is reported, never
  * counted against the PR.
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import * as core from '@actions/core';
@@ -42,6 +42,7 @@ import {
   renderComment,
   type ParsedPolicy,
 } from './core/reconcile/index.js';
+import { hasNoEvidence } from './core/reconcile/reconcile.js';
 import {
   adapters,
   detectTestCommand,
@@ -51,6 +52,7 @@ import {
 } from './core/runners/index.js';
 import type {
   AgentDetection,
+  BaselineRun,
   ChangedFile,
   DiffAnalysis,
   Discrepancy,
@@ -270,10 +272,14 @@ export async function ensureHeadCheckout(workDir: string, headSha: string, notes
 export function installPlan(
   workDir: string,
   files: Record<string, string | undefined>,
+  options: { force?: boolean } = {},
 ): Array<{ command: string; frozen: boolean }> {
   const plan: Array<{ command: string; frozen: boolean }> = [];
+  // `force` installs even when a dependency tree is already present — used when
+  // the checkout moved to a commit whose manifests differ from the installed ones.
+  const fresh = (dir: string): boolean => options.force === true || !existsSync(join(workDir, dir));
 
-  if (files['package.json'] !== undefined && !existsSync(join(workDir, 'node_modules'))) {
+  if (files['package.json'] !== undefined && fresh('node_modules')) {
     if (files['pnpm-lock.yaml'] !== undefined) plan.push({ command: 'pnpm i --frozen-lockfile', frozen: true });
     else if (files['yarn.lock'] !== undefined) plan.push({ command: 'yarn install --immutable', frozen: true });
     else if (files['bun.lockb'] !== undefined) plan.push({ command: 'bun install --frozen-lockfile', frozen: true });
@@ -283,7 +289,7 @@ export function installPlan(
     else plan.push({ command: 'npm install --no-audit --no-fund', frozen: false });
   }
 
-  if (files['go.mod'] !== undefined && !existsSync(join(workDir, 'vendor'))) {
+  if (files['go.mod'] !== undefined && fresh('vendor')) {
     plan.push({ command: 'go mod download', frozen: true });
   }
 
@@ -309,8 +315,9 @@ export async function installDependencies(
   files: Record<string, string | undefined>,
   env: Record<string, string>,
   notes: string[],
+  options: { force?: boolean } = {},
 ): Promise<void> {
-  for (const step of installPlan(workDir, files)) {
+  for (const step of installPlan(workDir, files, options)) {
     core.info(`install: ${step.command}`);
     const result = await shell(step.command, { cwd: workDir, env });
     if (result.code !== 0) {
@@ -607,6 +614,12 @@ export interface EvaluateOptions {
    * affordable choice: the root `pnpm test` fans out to every package.
    */
   preferClaimedCommand?: boolean;
+  /**
+   * `auto` (default): when the head run fails with evidence, run the same
+   * command at the base commit so failures the repository already had are not
+   * counted against the PR. `never`: skip that run. Falls back to the policy.
+   */
+  baseComparison?: 'auto' | 'never';
 }
 
 export interface EvaluateResult {
@@ -702,6 +715,24 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     observed = await runTests(detected, workDir, files, notes, {
       ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
     });
+
+    // A failed head run is compared against the base commit before it can be
+    // held against the PR: many repositories fail some tests on a clean runner
+    // (network, keys, platform), and those failures are not this change's.
+    const mode = opts.baseComparison ?? policy.baseComparison ?? 'auto';
+    if (mode !== 'never' && needsBaseline(observed)) {
+      if (pr.baseSha === '') {
+        const note = 'baseline: no base commit given, so the head failure could not be compared against base';
+        core.info(note);
+        notes.push(note);
+      } else {
+        core.info(`baseline: the head run failed (exit ${observed.exitCode}) — running the same command at base ${pr.baseSha.slice(0, 7)}`);
+        const baseline = await runBaseline(detected, workDir, pr, files, notes, {
+          ...(opts.skipInstall === undefined ? {} : { skipInstall: opts.skipInstall }),
+        });
+        if (baseline !== undefined) observed = { ...observed, baseline };
+      }
+    }
   }
 
   const diff = await collectDiff(workDir, pr, policy, notes);
@@ -719,6 +750,152 @@ export async function evaluate(opts: EvaluateOptions): Promise<EvaluateResult> {
     unverifiable,
     notes,
     receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
+  };
+}
+
+/** Manifests whose change between base and head means base needs its own install. */
+const DEPENDENCY_MANIFESTS: readonly string[] = [
+  'package.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lockb',
+  'bun.lock',
+  'go.mod',
+  'go.sum',
+  'pyproject.toml',
+  'uv.lock',
+  'poetry.lock',
+  'requirements.txt',
+  'Cargo.toml',
+  'Cargo.lock',
+];
+
+/** True when any dependency manifest differs between two checkouts' manifest maps. */
+export function manifestsDiffer(
+  a: Record<string, string | undefined>,
+  b: Record<string, string | undefined>,
+): boolean {
+  return DEPENDENCY_MANIFESTS.some((name) => a[name] !== b[name]);
+}
+
+/**
+ * True when the head run failed in a way a base run could explain: it ran, it
+ * produced evidence, and it did not pass. A passing run is never re-run at base
+ * — the comparison can only ever excuse a failure, never manufacture one.
+ */
+export function needsBaseline(observed: ObservedRun): boolean {
+  return observed.noTestCommand !== true && observed.exitCode !== 0 && !hasNoEvidence(observed);
+}
+
+/**
+ * Run the detected command at the base commit, in the same checkout and
+ * environment, and return what failed there. The head run's artifacts are
+ * kept aside and restored; the checkout always returns to head, and when the
+ * dependency manifests differ the base gets its own frozen install and head
+ * is reinstalled afterwards. Anything that stops the comparison is a note,
+ * never a failure: the head result then stands as observed.
+ */
+export async function runBaseline(
+  detected: DetectedCommand,
+  workDir: string,
+  pr: PullRequestFacts,
+  headFiles: Record<string, string | undefined>,
+  notes: string[],
+  options: { skipInstall?: boolean } = {},
+): Promise<BaselineRun | undefined> {
+  const sha = pr.baseSha;
+  const short = sha.slice(0, 7);
+  const giveUp = (reason: string): undefined => {
+    const note = `baseline: ${reason}; the head failure could not be compared against base ${short}`;
+    core.warning(note);
+    notes.push(note);
+    return undefined;
+  };
+
+  const present = await git(workDir, 'cat-file', '-e', `${sha}^{commit}`);
+  if (present.code !== 0) await git(workDir, 'fetch', '--no-tags', '--depth=1', 'origin', sha);
+
+  // Keep the head run's reports: the base run writes to the same paths.
+  const reportDir = join(workDir, REPORT_DIR);
+  const headKeep = `${reportDir}.head`;
+  rmSync(headKeep, { recursive: true, force: true });
+  if (existsSync(reportDir)) renameSync(reportDir, headKeep);
+  for (const nested of findNestedReports(workDir, detected.reportPath)) rmSync(nested, { force: true });
+
+  const restore = async (): Promise<boolean> => {
+    const back = await git(workDir, 'checkout', '--force', '--detach', pr.headSha);
+    const baseKeep = `${reportDir}.base`;
+    rmSync(baseKeep, { recursive: true, force: true });
+    if (existsSync(reportDir)) renameSync(reportDir, baseKeep);
+    if (existsSync(headKeep)) renameSync(headKeep, reportDir);
+    return back.code === 0;
+  };
+
+  const checkout = await git(workDir, 'checkout', '--force', '--detach', sha);
+  if (checkout.code !== 0) {
+    await restore();
+    return giveUp(`could not check out base ${short}`);
+  }
+
+  const env = mergedEnv(detected.env);
+  const baseFiles = readManifests(workDir);
+  const depsChanged = manifestsDiffer(headFiles, baseFiles);
+  if (depsChanged && options.skipInstall === true) {
+    await restore();
+    return giveUp('dependency manifests differ between base and head and installs are disabled');
+  }
+  if (depsChanged) {
+    core.info('baseline: dependency manifests differ from head — installing the base dependencies');
+    await installDependencies(workDir, baseFiles, env, notes, { force: true });
+  }
+
+  mkdirSync(reportDir, { recursive: true });
+  core.info(`baseline: run: ${detected.command} @ ${short}`);
+  const started = Date.now();
+  const result = await shell(detected.command, { cwd: workDir, env });
+  core.info(`baseline: run: exit ${result.code} in ${Math.round((Date.now() - started) / 1000)}s`);
+  if (detected.family === 'go') writeSafely(join(workDir, detected.reportPath), result.stdout);
+  const baseNotes: string[] = [];
+  const parsed = parseReport(detected, workDir, result.stdout, baseNotes);
+  for (const note of baseNotes) notes.push(`baseline: ${note}`);
+  const signal = signalOf(result);
+
+  const restored = await restore();
+  if (depsChanged) {
+    core.info('baseline: reinstalling the head dependencies');
+    await installDependencies(workDir, headFiles, env, notes, { force: true });
+  }
+  if (!restored) {
+    const note = `baseline: could not return the checkout to head ${pr.headSha.slice(0, 7)} after the base run`;
+    core.warning(note);
+    notes.push(note);
+  }
+
+  const noEvidence = hasNoEvidence({
+    command: detected.command,
+    runner: detected.family,
+    exitCode: result.code,
+    durationMs: 0,
+    toolchain: {},
+    totals: parsed.totals,
+    tests: parsed.tests,
+    ...(parsed.reportMissing === true ? { reportMissing: true } : {}),
+    ...(signal === undefined ? {} : { signal }),
+  });
+  const failed = parsed.tests
+    .filter((test) => test.status === 'failed')
+    .map((test) => test.id)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  core.info(
+    `baseline: ${parsed.totals.run} tests, ${parsed.totals.failed} failed at base${noEvidence ? ' (no per-test evidence)' : ''}`,
+  );
+  return {
+    sha,
+    exitCode: result.code,
+    totals: parsed.totals,
+    failed,
+    ...(noEvidence ? { noEvidence: true } : {}),
   };
 }
 

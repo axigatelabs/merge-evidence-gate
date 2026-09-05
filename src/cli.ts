@@ -55,6 +55,9 @@ Behaviour:
   --prefer-claimed-command When no command is given, run the test command the PR
                            body itself claims (first command claim with a known
                            runner) instead of the repository default.
+  --base-comparison <mode> auto (default): when the head run fails, run the same
+                           command at the base commit and only count failures
+                           this PR introduced; never: skip that run.
   --help                   Print this.
 `;
 
@@ -134,6 +137,7 @@ export async function main(argv: string[]): Promise<number> {
         'install-only': { type: 'boolean' },
         'skip-install': { type: 'boolean' },
         'prefer-claimed-command': { type: 'boolean' },
+        'base-comparison': { type: 'string' },
         help: { type: 'boolean' },
       },
     });
@@ -195,6 +199,11 @@ export async function main(argv: string[]): Promise<number> {
       values['agents-only'] === undefined ? undefined : parseBool('--agents-only', values['agents-only']);
 
     const policy = loadPolicy(workDir, values['policy-file'] ?? '.merge-evidence.yml');
+    const baseRaw = values['base-comparison'];
+    if (baseRaw !== undefined && baseRaw !== 'auto' && baseRaw !== 'never') {
+      throw new UsageError(`--base-comparison: expected 'auto' or 'never', got '${baseRaw}'`);
+    }
+    const baseComparison = baseRaw as 'auto' | 'never' | undefined;
     const result = await evaluate({
       workDir,
       pr,
@@ -203,6 +212,7 @@ export async function main(argv: string[]): Promise<number> {
       ...(agentsOnly === undefined ? {} : { agentsOnly }),
       ...(values['skip-install'] === true ? { skipInstall: true } : {}),
       ...(values['prefer-claimed-command'] === true ? { preferClaimedCommand: true } : {}),
+      ...(baseComparison === undefined ? {} : { baseComparison }),
     });
 
     if (result.receiptJson !== undefined) writeFile(out, result.receiptJson);

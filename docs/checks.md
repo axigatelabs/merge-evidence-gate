@@ -75,6 +75,17 @@ and a plain `cargo test` never has per-test output — but not when the run
 produced no evidence at all (killed, could not start, or the reporter never
 wrote): the claim is then unverifiable.
 
+**Base comparison.** A failed head run is compared against the base commit
+before it counts. The gate checks out the base, reinstalls dependencies only if
+a manifest differs, runs the same command, and restores head. A head failure is
+*introduced* when a failing test passes or does not exist at base, or when the
+run failed as a whole (no per-test failure to compare) while base succeeded.
+Only introduced failures fire C1; their ids lead the evidence, followed by how
+many failures the base shows too. When nothing was introduced the claim is
+reported unverifiable — "not reproduced on a clean runner" — and the receipt's
+`observed.baseline` says so. A base run that produced no evidence excuses
+nothing. A passing head run is never re-run at base.
+
 *Implemented:* claim parsing, command detection and reporter injection, the
 execution, and the comparison rule.
 

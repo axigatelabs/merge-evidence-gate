@@ -121,6 +121,14 @@ Each claim ends as **Confirmed**, **Unsupported**, or **Contradicted**. Only
 Contradicted raises a discrepancy; a claim the gate cannot check is never counted
 against the author.
 
+**Failures the repository already had are not the pull request's.** When the
+head run fails, the gate runs the same command at the base commit in the same
+environment. A test that fails at both commits is reported on the receipt as
+already failing at base; C1 fires only for failures the pull request introduced —
+a test that passes (or does not exist) at base and fails at head. A passing head
+run is never re-run, so the comparison can only ever excuse a failure. Turn it
+off with `base-comparison: never`.
+
 Every check, its exact detection rule, the evidence it records, and the failure
 mode it prevents: [docs/checks.md](docs/checks.md).
 
@@ -183,6 +191,7 @@ All optional. Defaults are from [`action.yml`](action.yml).
 | `test-command` | *(empty)* | Explicit test command. Overrides every form of detection. |
 | `agents-only` | `true` | Only run when the pull request looks agent-authored. `false` gates every pull request. |
 | `fail-on` | `fail` | Verdict at or above which the job fails. `fail` fails only on `FAIL`; `needs-human` also fails on `NEEDS_HUMAN`. |
+| `base-comparison` | `auto` | When the head run fails, re-run the same command at the base commit so failures the repository already had are not counted against the pull request. `never` skips that run. |
 | `comment` | `true` | Post and update the sticky receipt comment. |
 | `upload-receipt` | `true` | Upload `receipt.json` as a workflow artifact. |
 | `policy-file` | `.merge-evidence.yml` | Path to the policy file. |
