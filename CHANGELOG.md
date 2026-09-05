@@ -9,7 +9,24 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.3.1 — unreleased
+## 0.4.0 — unreleased
+
+### Added
+
+- **Workspace scoping.** A monorepo whose root has no test command — a turbo,
+  nx or lerna workspace where every package runs its own suite — is tested the
+  way its own CI tests a change: the `test` script of each package the pull
+  request touches, run from that package's directory, at most five, one runner
+  family per run, each writing its own report. A claimed command such as
+  `vitest` runs inside those packages instead of at the root, where it does not
+  exist. The base comparison runs the same packages at base. Every supabase
+  pull request in the study had come back NEUTRAL ("no test command") before
+  this; the root `package.json` there carries only turbo tasks.
+- `detectWorkspaceCommand` / `WorkspacePackage` in `src/core/runners`,
+  `workspacePackages` in the pipeline; the changed-file list is now collected
+  before the run.
+
+## 0.3.1 — 2026-09-05
 
 ### Changed
 

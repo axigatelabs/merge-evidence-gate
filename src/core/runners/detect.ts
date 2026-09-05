@@ -46,6 +46,28 @@ export interface DetectInput {
   files: Record<string, string | undefined>;
 }
 
+/** A workspace package the pull request touches, with the manifests found in its directory. */
+export interface WorkspacePackage {
+  /** Directory relative to the repository root, e.g. `apps/studio`. */
+  dir: string;
+  /** Manifest filenames → contents for that directory (`package.json` at least). */
+  files: Record<string, string | undefined>;
+}
+
+export interface WorkspaceDetectInput {
+  /** A command to run inside each package instead of the package's own `test` script. */
+  explicit?: string;
+  /** The repository root's manifests — the lockfile there decides the package manager. */
+  rootFiles: Record<string, string | undefined>;
+  /** Touched packages, most-changed first. */
+  packages: WorkspacePackage[];
+  /** How many packages to run at most (default 5); the rest are noted, not run. */
+  maxPackages?: number;
+}
+
+/** Packages run in one `detectWorkspaceCommand` call before the rest are noted instead. */
+export const MAX_WORKSPACE_PACKAGES = 5;
+
 /** Directory the gate writes its reporter output into. */
 export const REPORT_DIR = '.merge-evidence';
 
@@ -393,6 +415,80 @@ export function detectTestCommand(input: DetectInput): DetectedCommand | null {
   }
 
   return null;
+}
+
+/** Single-quote a path for bash; repository paths rarely carry quotes, but a quote must not break the command. */
+function shellQuote(path: string): string {
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * A monorepo whose root has no test command — a turbo/nx/lerna workspace where
+ * every package runs its own suite — is tested the way its own CI tests a
+ * change: the test script of each package the pull request touches, run from
+ * that package's directory. Each package writes its reporter output relative
+ * to its own directory, which the pipeline's nested-report merge collects.
+ *
+ * Packages whose runner family differs from the first package's are skipped
+ * with a note (one adapter parses the run), and no more than `maxPackages` run.
+ * With `explicit` set, that command is run inside each package instead of the
+ * package's script — how a claimed `vitest` in a monorepo body is meant.
+ * Returns null when no touched package has anything to run.
+ */
+export function detectWorkspaceCommand(input: WorkspaceDetectInput): DetectedCommand | null {
+  const explicit = input.explicit?.trim();
+  const parts: Array<{ dir: string; detected: DetectedCommand }> = [];
+  for (const pkg of input.packages) {
+    // The package's manifests win; the root's lockfile still decides the package manager.
+    const merged = { ...input.rootFiles, ...pkg.files };
+    if (explicit !== undefined && explicit.length > 0) {
+      parts.push({ dir: pkg.dir, detected: resolveWrittenCommand(explicit, merged) });
+      continue;
+    }
+    const manifest = parsePackageJson(pkg.files['package.json']);
+    const script = manifest?.scripts?.['test'];
+    if (script === undefined || script.trim().length === 0) continue;
+    parts.push({ dir: pkg.dir, detected: fromPackageScript(script, manifest, merged) });
+  }
+  if (parts.length === 0) return null;
+
+  const first = parts[0];
+  if (first === undefined) return null;
+  const family = first.detected.family;
+  const sameFamily = parts.filter((part) => part.detected.family === family);
+  const otherFamily = parts.filter((part) => part.detected.family !== family);
+  const max = input.maxPackages ?? MAX_WORKSPACE_PACKAGES;
+  const chosen = sameFamily.slice(0, max);
+  const beyondCap = sameFamily.slice(max);
+
+  const command = [
+    'f=0',
+    ...chosen.map(
+      (part) => `(cd ${shellQuote(part.dir)} && mkdir -p ${REPORT_DIR} && ${part.detected.command}) || f=1`,
+    ),
+    'exit "$f"',
+  ].join('; ');
+  const env = Object.assign({}, ...chosen.map((part) => part.detected.env)) as Record<string, string>;
+  const notes = [
+    `${explicit === undefined || explicit.length === 0 ? 'root has no test command; running the test script of' : 'running the claimed command in'} ${chosen.length} workspace package(s) this PR touches: ${chosen.map((part) => part.dir).join(', ')}`,
+  ];
+  if (otherFamily.length > 0) {
+    notes.push(`${otherFamily.map((part) => part.dir).join(', ')} use a different runner (${otherFamily.map((part) => part.detected.family).join(', ')}) and were not run`);
+  }
+  if (beyondCap.length > 0) {
+    notes.push(`${beyondCap.length} more touched package(s) not run (limit ${max}): ${beyondCap.map((part) => part.dir).join(', ')}`);
+  }
+  const firstNote = chosen[0]?.detected.note;
+  if (firstNote !== undefined) notes.push(firstNote);
+
+  return {
+    family,
+    command,
+    reporterArgs: [...first.detected.reporterArgs],
+    env,
+    reportPath: first.detected.reportPath,
+    note: notes.join('; '),
+  };
 }
 
 /**

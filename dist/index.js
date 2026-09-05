@@ -85671,11 +85671,14 @@ exports.pytestAdapter = {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.REPORT_PATHS = exports.REPORT_DIR = void 0;
+exports.REPORT_PATHS = exports.REPORT_DIR = exports.MAX_WORKSPACE_PACKAGES = void 0;
 exports.readYamlTestCommand = readYamlTestCommand;
 exports.readMakeTarget = readMakeTarget;
 exports.readPackageManager = readPackageManager;
 exports.detectTestCommand = detectTestCommand;
+exports.detectWorkspaceCommand = detectWorkspaceCommand;
+/** Packages run in one `detectWorkspaceCommand` call before the rest are noted instead. */
+exports.MAX_WORKSPACE_PACKAGES = 5;
 /** Directory the gate writes its reporter output into. */
 exports.REPORT_DIR = '.merge-evidence';
 exports.REPORT_PATHS = {
@@ -85989,6 +85992,77 @@ function detectTestCommand(input) {
     }
     return null;
 }
+/** Single-quote a path for bash; repository paths rarely carry quotes, but a quote must not break the command. */
+function shellQuote(path) {
+    return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+/**
+ * A monorepo whose root has no test command — a turbo/nx/lerna workspace where
+ * every package runs its own suite — is tested the way its own CI tests a
+ * change: the test script of each package the pull request touches, run from
+ * that package's directory. Each package writes its reporter output relative
+ * to its own directory, which the pipeline's nested-report merge collects.
+ *
+ * Packages whose runner family differs from the first package's are skipped
+ * with a note (one adapter parses the run), and no more than `maxPackages` run.
+ * With `explicit` set, that command is run inside each package instead of the
+ * package's script — how a claimed `vitest` in a monorepo body is meant.
+ * Returns null when no touched package has anything to run.
+ */
+function detectWorkspaceCommand(input) {
+    const explicit = input.explicit?.trim();
+    const parts = [];
+    for (const pkg of input.packages) {
+        // The package's manifests win; the root's lockfile still decides the package manager.
+        const merged = { ...input.rootFiles, ...pkg.files };
+        if (explicit !== undefined && explicit.length > 0) {
+            parts.push({ dir: pkg.dir, detected: resolveWrittenCommand(explicit, merged) });
+            continue;
+        }
+        const manifest = parsePackageJson(pkg.files['package.json']);
+        const script = manifest?.scripts?.['test'];
+        if (script === undefined || script.trim().length === 0)
+            continue;
+        parts.push({ dir: pkg.dir, detected: fromPackageScript(script, manifest, merged) });
+    }
+    if (parts.length === 0)
+        return null;
+    const first = parts[0];
+    if (first === undefined)
+        return null;
+    const family = first.detected.family;
+    const sameFamily = parts.filter((part) => part.detected.family === family);
+    const otherFamily = parts.filter((part) => part.detected.family !== family);
+    const max = input.maxPackages ?? exports.MAX_WORKSPACE_PACKAGES;
+    const chosen = sameFamily.slice(0, max);
+    const beyondCap = sameFamily.slice(max);
+    const command = [
+        'f=0',
+        ...chosen.map((part) => `(cd ${shellQuote(part.dir)} && mkdir -p ${exports.REPORT_DIR} && ${part.detected.command}) || f=1`),
+        'exit "$f"',
+    ].join('; ');
+    const env = Object.assign({}, ...chosen.map((part) => part.detected.env));
+    const notes = [
+        `${explicit === undefined || explicit.length === 0 ? 'root has no test command; running the test script of' : 'running the claimed command in'} ${chosen.length} workspace package(s) this PR touches: ${chosen.map((part) => part.dir).join(', ')}`,
+    ];
+    if (otherFamily.length > 0) {
+        notes.push(`${otherFamily.map((part) => part.dir).join(', ')} use a different runner (${otherFamily.map((part) => part.detected.family).join(', ')}) and were not run`);
+    }
+    if (beyondCap.length > 0) {
+        notes.push(`${beyondCap.length} more touched package(s) not run (limit ${max}): ${beyondCap.map((part) => part.dir).join(', ')}`);
+    }
+    const firstNote = chosen[0]?.detected.note;
+    if (firstNote !== undefined)
+        notes.push(firstNote);
+    return {
+        family,
+        command,
+        reporterArgs: [...first.detected.reporterArgs],
+        env,
+        reportPath: first.detected.reportPath,
+        note: notes.join('; '),
+    };
+}
 /**
  * Resolve a command someone wrote down (action input or `.merge-evidence.yml`).
  * A direct runner invocation gets its reporter injected inline; a wrapper
@@ -86085,7 +86159,7 @@ function fromPackageScript(script, pkg, files) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.adapters = exports.parseJestJson = exports.vitestAdapter = exports.jestAdapter = exports.parseJUnitXml = exports.pytestAdapter = exports.junitAdapter = exports.parseGoTestJson = exports.goAdapter = exports.REPORT_PATHS = exports.REPORT_DIR = exports.detectTestCommand = void 0;
+exports.adapters = exports.parseJestJson = exports.vitestAdapter = exports.jestAdapter = exports.parseJUnitXml = exports.pytestAdapter = exports.junitAdapter = exports.parseGoTestJson = exports.goAdapter = exports.REPORT_PATHS = exports.REPORT_DIR = exports.MAX_WORKSPACE_PACKAGES = exports.detectWorkspaceCommand = exports.detectTestCommand = void 0;
 exports.normalize = normalize;
 exports.testsDigest = testsDigest;
 /**
@@ -86103,6 +86177,8 @@ const jest_js_1 = __nccwpck_require__(18468);
 const junit_js_1 = __nccwpck_require__(20904);
 var detect_js_1 = __nccwpck_require__(83764);
 Object.defineProperty(exports, "detectTestCommand", ({ enumerable: true, get: function () { return detect_js_1.detectTestCommand; } }));
+Object.defineProperty(exports, "detectWorkspaceCommand", ({ enumerable: true, get: function () { return detect_js_1.detectWorkspaceCommand; } }));
+Object.defineProperty(exports, "MAX_WORKSPACE_PACKAGES", ({ enumerable: true, get: function () { return detect_js_1.MAX_WORKSPACE_PACKAGES; } }));
 Object.defineProperty(exports, "REPORT_DIR", ({ enumerable: true, get: function () { return detect_js_1.REPORT_DIR; } }));
 Object.defineProperty(exports, "REPORT_PATHS", ({ enumerable: true, get: function () { return detect_js_1.REPORT_PATHS; } }));
 var go_js_2 = __nccwpck_require__(27536);
@@ -86529,6 +86605,7 @@ exports.writeSafely = writeSafely;
 exports.collectDiff = collectDiff;
 exports.changedFiles = changedFiles;
 exports.evaluate = evaluate;
+exports.workspacePackages = workspacePackages;
 exports.manifestsDiffer = manifestsDiffer;
 exports.needsBaseline = needsBaseline;
 exports.runBaseline = runBaseline;
@@ -86992,8 +87069,8 @@ function writeSafely(path, contents) {
  * not be in the object store; it is fetched on demand, and if that fails too the
  * gate reports an empty diff (losing the C3–C8 checks) rather than failing.
  */
-async function collectDiff(workDir, pr, policy, notes) {
-    const files = await changedFiles(workDir, pr, notes);
+async function collectDiff(workDir, pr, policy, notes, changed) {
+    const files = changed ?? (await changedFiles(workDir, pr, notes));
     core.info(`diff: ${files.length} changed file(s)`);
     return {
         ...(0, index_js_2.analyzeDiff)(files, policy.scopeAllow === undefined ? {} : { scopeAllow: policy.scopeAllow }),
@@ -87056,23 +87133,42 @@ async function evaluate(opts) {
     const files = (0, env_js_1.readManifests)(workDir);
     const claims = (0, index_js_1.extractClaims)(pr);
     core.info(`claims: ${claims.length} extracted from the PR body`);
-    let explicit = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
-    if (explicit === undefined && opts.preferClaimedCommand === true) {
+    // The changed files are needed before the run: in a workspace whose root has
+    // no test command, the packages this PR touches are what gets tested.
+    const changed = pr.baseSha === '' ? [] : await changedFiles(workDir, pr, notes);
+    const packages = workspacePackages(workDir, changed);
+    const operatorCommand = opts.testCommand === undefined || opts.testCommand === '' ? policy.testCommand : opts.testCommand;
+    let claimedCommand;
+    if (operatorCommand === undefined && opts.preferClaimedCommand === true) {
         const claimed = claims.find((c) => c.kind === 'command' && c.parsed.kind === 'command' && c.parsed.runner !== 'unknown');
         if (claimed !== undefined) {
             const stripped = withoutInstallSteps(claimed.parsed.raw);
             if (stripped !== '') {
-                explicit = stripped;
-                const note = `runner: running the command the PR claimed (${claimed.id}): \`${explicit}\``;
+                claimedCommand = stripped;
+                const note = `runner: running the command the PR claimed (${claimed.id}): \`${claimedCommand}\``;
                 core.info(note);
                 notes.push(note);
             }
         }
     }
-    const detected = (0, index_js_4.detectTestCommand)({
-        ...(explicit === undefined ? {} : { explicit }),
-        files,
-    });
+    // Precedence: an operator/policy command runs at the root as written; a
+    // claimed command runs at the root when the root has a test command of its
+    // own, else inside the touched packages; otherwise the root's own command,
+    // else the touched packages' scripts.
+    const root = (0, index_js_4.detectTestCommand)({ ...(operatorCommand === undefined ? {} : { explicit: operatorCommand }), files });
+    let detected;
+    if (operatorCommand !== undefined) {
+        detected = root;
+    }
+    else if (claimedCommand !== undefined) {
+        detected =
+            root === null && packages.length > 0
+                ? (0, index_js_4.detectWorkspaceCommand)({ explicit: claimedCommand, rootFiles: files, packages })
+                : (0, index_js_4.detectTestCommand)({ explicit: claimedCommand, files });
+    }
+    else {
+        detected = root ?? (packages.length > 0 ? (0, index_js_4.detectWorkspaceCommand)({ rootFiles: files, packages }) : null);
+    }
     let observed;
     if (detected === null) {
         const note = 'no test command could be detected — configure `test-command:` to enable the gate';
@@ -87114,7 +87210,7 @@ async function evaluate(opts) {
             }
         }
     }
-    const diff = await collectDiff(workDir, pr, policy, notes);
+    const diff = await collectDiff(workDir, pr, policy, notes, changed);
     const { discrepancies, verdict, unverifiable } = (0, index_js_3.reconcile)({ pr, claims, observed, diff, policy });
     const receipt = (0, index_js_3.buildReceipt)({ pr, agent, claims, observed, diff, discrepancies, verdict, policy });
     const rendered = (0, index_js_3.renderComment)(receipt, { unverifiable: [...unverifiable, ...notes] });
@@ -87128,6 +87224,31 @@ async function evaluate(opts) {
         notes,
         receiptJson: `${JSON.stringify(receipt, null, 2)}\n`,
     };
+}
+/**
+ * The workspace packages a change touches: for each changed path, the nearest
+ * ancestor directory — never the root — holding a `package.json`. Most-changed
+ * first, so a cap keeps the packages the pull request is mostly about. A
+ * package deleted by the change has no directory at head and is skipped.
+ */
+function workspacePackages(workDir, changed) {
+    const counts = new Map();
+    for (const file of changed) {
+        const path = file.path.replace(/\\/g, '/');
+        if (path.split('/').includes('node_modules'))
+            continue;
+        let dir = (0, node_path_1.dirname)(path);
+        while (dir !== '.' && dir !== '' && dir !== '/') {
+            if ((0, node_fs_1.existsSync)((0, node_path_1.join)(workDir, dir, 'package.json'))) {
+                counts.set(dir, (counts.get(dir) ?? 0) + 1);
+                break;
+            }
+            dir = (0, node_path_1.dirname)(dir);
+        }
+    }
+    return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+        .map(([dir]) => ({ dir, files: (0, env_js_1.readManifests)((0, node_path_1.join)(workDir, dir)) }));
 }
 /** Manifests whose change between base and head means base needs its own install. */
 const DEPENDENCY_MANIFESTS = [

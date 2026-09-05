@@ -1,6 +1,6 @@
 {
   "name": "merge-evidence-gate",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "Re-runs AI-agent pull requests in a clean environment, compares what the agent claimed to what actually happened, and posts a signed receipt that decides merge eligibility.",
   "license": "MIT",
