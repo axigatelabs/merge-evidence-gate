@@ -238,6 +238,37 @@ describe('extractClaims — command grammar', () => {
   });
 });
 
+describe('extractClaims — commands behind wrappers and env assignments', () => {
+  const commandsIn = (body: string) =>
+    extractClaims(facts(body)).filter((c) => c.kind === 'command').map((c) => c.parsed as ParsedCommand);
+
+  it('sees through uv/poetry/npx/pnpm exec/yarn/bunx and a leading VAR=value', () => {
+    expect(commandsIn('Ran `uv run pytest tests/test_litellm/proxy/test_x.py -q`.')).toEqual([
+      { kind: 'command', runner: 'pytest', raw: 'uv run pytest tests/test_litellm/proxy/test_x.py -q', paths: ['tests/test_litellm/proxy/test_x.py'], nameFilters: [] },
+    ]);
+    expect(commandsIn('`LITELLM_LOCAL_MODEL_COST_MAP=True uv run --no-sync pytest tests/a.py -k cadence -q`')).toEqual([
+      { kind: 'command', runner: 'pytest', raw: 'LITELLM_LOCAL_MODEL_COST_MAP=True uv run --no-sync pytest tests/a.py -k cadence -q', paths: ['tests/a.py'], nameFilters: ['cadence'] },
+    ]);
+    expect(commandsIn('`npx vitest run src/a.test.ts`').map((c) => [c.runner, c.paths])).toEqual([['vitest', ['src/a.test.ts']]]);
+    expect(commandsIn('`pnpm exec jest --ci`').map((c) => c.runner)).toEqual(['jest']);
+    expect(commandsIn('`yarn vitest run`').map((c) => c.runner)).toEqual(['vitest']);
+    expect(commandsIn('`bunx vitest`').map((c) => c.runner)).toEqual(['vitest']);
+    expect(commandsIn('`poetry run pytest -x`').map((c) => c.runner)).toEqual(['pytest']);
+  });
+
+  it('keeps `yarn test` and `npm test` as package scripts', () => {
+    expect(commandsIn('`yarn test` and `npm test`').map((c) => c.runner)).toEqual(['npm', 'npm']);
+  });
+
+  it('ignores a command carrying a template placeholder', () => {
+    const body = '- [x] The handful of test files covering my change pass locally, e.g. `uv run pytest tests/test_litellm/<your_test_file>.py -v`';
+    const claims = extractClaims(facts(body));
+    expect(claims.filter((c) => c.kind === 'command')).toEqual([]);
+    expect(claims.filter((c) => c.kind === 'checkbox')).toHaveLength(1);
+    expect(commandsIn('`pytest tests/<path>`')).toEqual([]);
+  });
+});
+
 describe('extractClaims — count grammar', () => {
   const parsedCount = (body: string): ParsedCount => {
     const claim = claimsFor(body).find((c) => c.kind === 'count');

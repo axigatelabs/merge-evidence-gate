@@ -105,7 +105,10 @@ docker run --rm --name "meg-$KEY-$NUM-p1" "${RES_ARGS[@]}" "${CACHE_ARGS[@]}" -v
 echo "[$KEY#$NUM] phase 2: clean re-run, network off" >&2
 # PR facts travel as environment variables and are expanded by the container's
 # own shell (single-quoted script): titles and branch names can contain quotes.
+# uv would try to sync the project environment before `uv run …`; offline that
+# is a dead network wait. The environment was synced in phase 1.
 docker run --rm --network none --name "meg-$KEY-$NUM-p2" "${RES_ARGS[@]}" \
+  -e UV_NO_SYNC=1 -e UV_OFFLINE=1 -e PIP_NO_INDEX=1 \
   -e MEG_REPO="$REPO" -e MEG_NUM="$NUM" -e MEG_HEAD="$HEAD" -e MEG_BASE="$BASE" \
   -e MEG_AUTHOR="$AUTHOR" -e MEG_HREF="$HREF" -e MEG_BREF="$BREF" -e MEG_TITLE="$TITLE" \
   -e MEG_TEST_CMD="$TEST_CMD" -e MEG_TIMEOUT="$TIMEOUT" "${CACHE_ARGS[@]}" -v "$REPOVOL:/work/repo" \

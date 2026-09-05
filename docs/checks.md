@@ -57,7 +57,13 @@ code span whose opening matches a known test-runner invocation — `go test`,
 `make test`, `jest`, `vitest`, `./gradlew …`, `dotnet test`, `mvn …`, or a
 repo-local `scripts/test*.sh` (`COMMAND_PREFIXES` in
 `src/core/claims/extract.ts`). The prefix only matches at an identifier
-boundary, so `go testdata` is not a command claim. Path selectors and name
+boundary, so `go testdata` is not a command claim. A leading `VAR=value` and
+the wrappers that run a tool from a project environment — `uv run`,
+`poetry run`, `pipenv run`, `npx`, `pnpm exec`, `yarn`, `bunx` — are stepped
+over (`uv run pytest tests/a.py -q` is a pytest claim on `tests/a.py`; the
+wrapper stays in the text that is re-run). A span carrying a template
+placeholder such as `<your_test_file>` is the repository's PR template, not a
+claim, and is ignored. Path selectors and name
 filters (`-run`, `-k`, `-t`, `--grep`, `-p`) are parsed out into
 `ParsedCommand.paths` and `ParsedCommand.nameFilters`.
 

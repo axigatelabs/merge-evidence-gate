@@ -83137,6 +83137,21 @@ const COMMAND_PREFIXES = [
 ];
 /** Any repo-local test script, e.g. `scripts/test.sh`, `./scripts/test-e2e.sh`. */
 const TEST_SCRIPT = /^(?:\.\/)?scripts\/test[^\s]*\.sh/;
+/**
+ * What may stand in front of a test command without changing what it is:
+ * `VAR=value` assignments and the wrappers that run a tool from a project
+ * environment — `uv run pytest …`, `poetry run pytest …`, `npx vitest …`,
+ * `pnpm exec jest …`, `yarn vitest …`, `bunx vitest …`. The wrapper stays in
+ * the claim's `raw` text (that is what gets re-run); only the match starts
+ * after it.
+ */
+const COMMAND_WRAPPERS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s+)*(?:(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run\s+(?:--no-sync\s+|--frozen\s+)*|npx\s+(?:--no-install\s+|--yes\s+|-y\s+)*|pnpm\s+(?:exec|dlx)\s+|yarn\s+(?:exec\s+)?|bunx\s+|bun\s+x\s+)?/;
+/**
+ * `<your_test_file>`, `<path>`: a template placeholder. A command carrying one
+ * is the repository's PR template showing how to test, not a statement that
+ * the author ran anything.
+ */
+const PLACEHOLDER = /<[^<>\s]+>/;
 /** Flags whose value is a test-name filter: `-run X`, `-k X`, `-t X`, `--grep X`. */
 const NAME_FILTER_FLAGS = new Set(['-run', '--run', '-k', '-t', '--grep']);
 /** Flags whose value selects a package/path: `cargo test -p my-crate`. */
@@ -83150,15 +83165,24 @@ const SOURCE_FILE = /\.(?:py|ts|tsx|js|jsx|mjs|cjs|go|rs|java|kt|rb|php|cs|swift
  * "bun run test:unit", but neither matches "go testdata".
  */
 function matchCommandPrefix(raw) {
-    for (const [prefix, runner] of COMMAND_PREFIXES) {
-        if (!raw.startsWith(prefix))
-            continue;
-        const next = raw.charAt(prefix.length);
-        if (next === '' || !/[A-Za-z0-9_-]/.test(next))
-            return { prefix, runner };
+    if (PLACEHOLDER.test(raw))
+        return undefined;
+    // First as written (`yarn test` is a package script, not `yarn` wrapping
+    // `test`); then with any env assignments and runner wrapper stepped over.
+    for (const offset of [0, COMMAND_WRAPPERS.exec(raw)?.[0].length ?? 0]) {
+        const core = raw.slice(offset);
+        for (const [prefix, runner] of COMMAND_PREFIXES) {
+            if (!core.startsWith(prefix))
+                continue;
+            const next = core.charAt(prefix.length);
+            if (next === '' || !/[A-Za-z0-9_-]/.test(next))
+                return { prefix, runner, offset };
+        }
+        const script = TEST_SCRIPT.exec(core);
+        if (script)
+            return { prefix: script[0], runner: 'unknown', offset };
     }
-    const script = TEST_SCRIPT.exec(raw);
-    return script ? { prefix: script[0], runner: 'unknown' } : undefined;
+    return undefined;
 }
 /**
  * One command argument. A run of non-space characters, except that a quoted
@@ -83180,10 +83204,10 @@ function looksLikePath(token) {
     return SOURCE_FILE.test(token);
 }
 /** Split the arguments after the recognised opening into paths and name filters. */
-function parseCommand(raw, prefix, runner) {
+function parseCommand(raw, prefix, runner, offset = 0) {
     const paths = [];
     const nameFilters = [];
-    const tokens = tokenize(raw.slice(prefix.length));
+    const tokens = tokenize(raw.slice(offset + prefix.length));
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i];
         if (token === undefined)
@@ -83354,7 +83378,7 @@ function collectFromLine(line, section) {
         const at = span.index;
         const opening = matchCommandPrefix(raw);
         if (opening) {
-            const parsed = parseCommand(raw, opening.prefix, opening.runner);
+            const parsed = parseCommand(raw, opening.prefix, opening.runner, opening.offset);
             found.push({ at, claim: withSection({ kind: 'command', text: `\`${raw}\``, parsed }) });
         }
         else if (isTestName(raw)) {
@@ -85150,10 +85174,15 @@ function claimLines(receipt, unverifiable) {
     const totals = receipt.observed.totals;
     const lines = [];
     const rendered = new Set();
+    /** A body that names the same command three times gets one line, not three. */
+    const commandsShown = new Set();
     for (const claim of receipt.claims) {
         const command = commandOf(claim);
         if (command !== undefined) {
             rendered.add(claim.id);
+            if (commandsShown.has(command.raw))
+                continue;
+            commandsShown.add(command.raw);
             const label = `\`${command.raw}\``;
             const baseline = receipt.observed.baseline;
             const failure = receipt.discrepancies.find((d) => d.check === 'C1' && d.claim === claim.id);

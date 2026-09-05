@@ -85,11 +85,15 @@ function claimLines(receipt: Receipt, unverifiable: readonly string[]): string[]
   const totals = receipt.observed.totals;
   const lines: string[] = [];
   const rendered = new Set<string>();
+  /** A body that names the same command three times gets one line, not three. */
+  const commandsShown = new Set<string>();
 
   for (const claim of receipt.claims) {
     const command = commandOf(claim);
     if (command !== undefined) {
       rendered.add(claim.id);
+      if (commandsShown.has(command.raw)) continue;
+      commandsShown.add(command.raw);
       const label = `\`${command.raw}\``;
       const baseline = receipt.observed.baseline;
       const failure = receipt.discrepancies.find((d) => d.check === 'C1' && d.claim === claim.id);

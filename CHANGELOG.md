@@ -9,7 +9,23 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
-## 0.4.0 — unreleased
+## 0.5.0 — unreleased
+
+### Changed
+
+- Command claims are read through a leading `VAR=value` and the wrappers that
+  run a tool from a project environment (`uv run`, `poetry run`, `pipenv run`,
+  `npx`, `pnpm exec`, `yarn`, `bunx`): `uv run pytest tests/a.py -q` is a
+  pytest claim on `tests/a.py`, re-run as written. Every litellm pull request
+  in the study names its test command that way; none had been a claim.
+- A command carrying a template placeholder (`<your_test_file>`) is the
+  repository's PR template, not a claim, and is ignored.
+- A body that names the same command several times gets one line on the
+  receipt, not one per mention.
+- Study harness: phase 2 runs with `UV_NO_SYNC=1 UV_OFFLINE=1` so `uv run …`
+  uses the environment synced in phase 1 instead of waiting on a dead network.
+
+## 0.4.0 — 2026-09-05
 
 ### Added
 
