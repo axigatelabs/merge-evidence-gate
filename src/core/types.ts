@@ -372,8 +372,15 @@ export interface Receipt {
   discrepancies: Discrepancy[];
   verdict: Verdict;
   policy_version: string;
-  /** Filled in v1.1 when the receipt is attested via actions/attest. */
-  signature?: { attestation_id?: string; predicate_type: string };
+  /**
+   * How this receipt is signed, if it is. `predicate_type` names the in-toto
+   * predicate type the receipt is attested under; `method` is set before
+   * signing (`attest`: a GitHub artifact attestation whose subject is this
+   * file's sha256; `key`: a detached Ed25519 signature in `receipt.sig.json`).
+   * The attestation id or signature itself cannot live here: they are computed
+   * over these very bytes, so they sit in the job outputs and a sidecar file.
+   */
+  signature?: { predicate_type: string; method?: 'attest' | 'key' };
 }
 
 /** What the render module produces for the sticky PR comment. */
