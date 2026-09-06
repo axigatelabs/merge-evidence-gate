@@ -174,6 +174,63 @@ describe('cli', () => {
     }
   });
 
+  it('signs the receipt with --signing-key-file and verifies it with the verify subcommand', async () => {
+    const keyDir = join(outDir, 'keys');
+    const keygen = await runCli(['keygen', '--out', keyDir]);
+    expect(keygen.code).toBe(0);
+    expect(keygen.stdout).toMatch(/key id: sha256:[0-9a-f]{64}/);
+    expect(existsSync(join(keyDir, 'merge-evidence.key'))).toBe(true);
+    expect(existsSync(join(keyDir, 'merge-evidence.pub'))).toBe(true);
+    // a second keygen must not overwrite a signing key
+    expect((await runCli(['keygen', '--out', keyDir])).code).toBe(2);
+
+    const out = join(outDir, 'signed', 'receipt.json');
+    const run = await runCli([
+      '--work', repo.dir,
+      '--repo', 'example/demo',
+      '--pr', '42',
+      '--head', repo.headSha,
+      '--base', repo.baseSha,
+      '--author', 'demo-agent',
+      '--head-ref', 'claude/add-div',
+      '--base-ref', 'main',
+      '--body-file', join(repo.dir, 'PR_BODY.md'),
+      '--out', out,
+      '--evidence', 'none',
+      '--signing-key-file', join(keyDir, 'merge-evidence.key'),
+    ]);
+    expect(run.code).toBe(0);
+    expect(run.stdout).toMatch(/signed=\S+receipt\.json\.sig\.json key=sha256:/);
+    const receipt = JSON.parse(readFileSync(out, 'utf8')) as { verdict: string; signature?: { method?: string; predicate_type?: string } };
+    expect(receipt.signature).toEqual({ predicate_type: 'https://merge-evidence.dev/receipt/v1', method: 'key' });
+    // evidence: none still runs the diff checks, and this PR deletes a test file
+    expect(receipt.verdict).toBe('FAIL');
+
+    const verify = await runCli(['verify', '--receipt', out, '--signature', `${out}.sig.json`, '--public-key', join(keyDir, 'merge-evidence.pub')]);
+    expect(verify.code).toBe(0);
+    expect(verify.stdout).toMatch(/^merge-evidence: verified .*receipt\.json sha256=[0-9a-f]{64} key=sha256:[0-9a-f]{64} verdict=FAIL head=/);
+
+    const asJson = await runCli(['verify', '--receipt', out, '--signature', `${out}.sig.json`, '--public-key', join(keyDir, 'merge-evidence.pub'), '--format', 'json']);
+    expect(JSON.parse(asJson.stdout)).toMatchObject({ verified: true, verdict: 'FAIL', repo: 'example/demo', number: 42, head_sha: repo.headSha });
+
+    // one changed byte in the receipt, and it no longer verifies — exit 1, reason on stderr
+    const tampered = join(outDir, 'signed', 'tampered.json');
+    writeFileSync(tampered, readFileSync(out, 'utf8').replace('"verdict": "FAIL"', '"verdict": "PASS"'), 'utf8');
+    const bad = await runCli(['verify', '--receipt', tampered, '--signature', `${out}.sig.json`, '--public-key', join(keyDir, 'merge-evidence.pub')]);
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toMatch(/NOT verified — the receipt's sha256/);
+
+    // the wrong key: exit 1 too, naming both key ids
+    const otherDir = join(outDir, 'other-keys');
+    await runCli(['keygen', '--out', otherDir]);
+    const wrongKey = await runCli(['verify', '--receipt', out, '--signature', `${out}.sig.json`, '--public-key', join(otherDir, 'merge-evidence.pub')]);
+    expect(wrongKey.code).toBe(1);
+    expect(wrongKey.stderr).toMatch(/names key sha256:.* the key supplied is sha256:/);
+
+    // usage mistakes are exit 2
+    expect((await runCli(['verify', '--receipt', out])).code).toBe(2);
+  });
+
   it('--evidence none skips the run and rests on the diff alone', async () => {
     const out = join(outDir, 'none', 'receipt.json');
     const run = await runCli([

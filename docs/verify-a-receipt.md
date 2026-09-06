@@ -202,25 +202,42 @@ If an evidence line does not survive steps 3–5, the finding is wrong. Please o
 an issue with the receipt attached — a false positive in a deterministic check is
 a bug with a reproducible cause.
 
-## 7. Verify the signature — planned, not shipped
+## 7. Verify the signature
 
-v1 emits an unsigned receipt. The format is designed to be wrapped as an in-toto
-Statement with predicate type `https://merge-evidence.dev/receipt/v1` and signed
-with [`actions/attest`](https://github.com/actions/attest) in v1.1. The
-`signature` field on the receipt is the placeholder for that
-(`Receipt['signature']` in `src/core/types.ts`).
+`signature.method` on the receipt says which of the two applies. Either way the
+signature covers the exact bytes of `receipt.json`: verify the file you were
+given, not a re-serialised copy.
 
-When it ships, this step becomes:
+**`attest`** — the receipt is the predicate of a GitHub artifact attestation
+signed with the workflow's own identity:
 
 ```bash
-# planned — v1.1
 gh attestation verify receipt.json -R owner/name \
+  --predicate-type https://merge-evidence.dev/receipt/v1 \
+  --signer-workflow owner/name/.github/workflows/merge-evidence.yml \
+  --format json
+# offline, with the bundle from the artifact:
+gh attestation verify receipt.json --bundle receipt.sigstore.json -R owner/name \
   --predicate-type https://merge-evidence.dev/receipt/v1
 ```
 
-Until then, the receipt's integrity rests on where you got it from: a workflow
-artifact from a run you can inspect, on a commit you have confirmed in step 1.
-Treat a receipt pasted into a comment thread as unverified.
+Trust the certificate's identity (`verificationResult.signature.certificate`)
+and the witnessed timestamps; the predicate is what that workflow said. Check
+that the identity is the workflow you expect, then that `pr.head_sha` inside the
+predicate is the commit in front of you, then the verdict.
+
+**`key`** — a detached Ed25519 signature beside the receipt, checked against the
+public key you hold (never the copy embedded in the signature document):
+
+```bash
+node dist/cli/index.js verify --receipt receipt.json --signature receipt.sig.json \
+  --public-key merge-evidence.pub --format json
+# exit 0 verified · 1 not verified, reason on stderr · 2 usage
+```
+
+An unsigned receipt (`signature.method` absent) rests on where you got it: a
+workflow artifact from a run you can inspect, on a commit you confirmed in step
+1. Treat a receipt pasted into a comment thread as unverified.
 
 ## Related
 

@@ -113,7 +113,30 @@ and removals require a new major (`/v2`).
 | `discrepancies[]` | One entry per rule hit. `severity` ∈ `fail`, `needs-human`, `info`. |
 | `verdict` | `PASS` (no fail/needs-human hits) · `NEEDS_HUMAN` · `FAIL` · `NEUTRAL` (no test command found, or the run produced no per-test evidence — the gate abstains unless a check that needs no run, C3–C8, fired above `info`). |
 | `policy_version` | Version of the severity policy applied, so a receipt can be re-interpreted. |
-| `signature` | Present when the receipt was attested (`actions/attest`, in-toto v1 statement). `attestation_id` links to the Sigstore/GitHub record. |
+| `signature` | Always present. `predicate_type` is the in-toto predicate type the receipt is attested under. `method` is set before signing — `attest` (a GitHub artifact attestation whose subject is this file's sha256) or `key` (a detached Ed25519 signature in `receipt.sig.json`) — and absent on an unsigned receipt. The attestation id or the signature itself never sit here: they are computed over these very bytes, so they live in the job outputs and the sidecar files. |
+
+## Signing
+
+Both methods sign the exact bytes of `receipt.json`; nothing is canonicalised.
+
+**`attest`** — an in-toto v1 statement: `subject` = `[{ name: "receipt.json",
+digest: { sha256 } }]`, `predicateType` = `https://merge-evidence.dev/receipt/v1`,
+`predicate` = the receipt. Signed through GitHub artifact attestations with the
+workflow's OIDC identity and stored with the repository; the Sigstore bundle is
+also written to `receipt.sigstore.json` beside the receipt. Only the signing
+certificate and the witnessed timestamps are outside the workflow's control;
+the predicate is what the workflow said.
+
+**`key`** — `receipt.sig.json`, schema `merge-evidence/signature/v1`:
+
+| Field | Meaning |
+|---|---|
+| `algorithm` | `ed25519`. |
+| `subject.name` / `subject.sha256` | The file signed and its sha256 (hex). |
+| `signature` | Base64 of the 64-byte Ed25519 signature over the subject's bytes. |
+| `public_key` | The signing key's public half, PEM. Informational: a verifier uses its own copy. |
+| `key_id` | `sha256:` over the public key's SPKI DER — the name a verifier trusts. |
+| `signed_at` | When it was signed (informational; not covered by the signature). |
 
 ## Verdict policy (v1 defaults)
 
@@ -136,4 +159,4 @@ Overrides live in `.merge-evidence.yml` (see `.merge-evidence.example.yml`).
 1. Check `pr.head_sha` matches the commit you are about to merge.
 2. Re-run `observed.command` on that commit; hash the sorted executed test ids and compare to
    `observed.tests_digest`.
-3. If `signature.attestation_id` is present: `gh attestation verify receipt.json -R owner/name --predicate-type https://merge-evidence.dev/receipt/v1`.
+3. If `signature.method` is `attest`: `gh attestation verify receipt.json -R owner/name --predicate-type https://merge-evidence.dev/receipt/v1 --signer-workflow owner/name/.github/workflows/<file>.yml`. If it is `key`: `merge-evidence verify --receipt receipt.json --signature receipt.sig.json --public-key <the key you hold>`.

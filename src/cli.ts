@@ -19,16 +19,19 @@
  *     there is no receipt to write.
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { generateSigningKeyPair, signReceipt, verifyReceiptSignature, withSignatureMethod } from './core/signing.js';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { isReportFormat, REPORT_FORMATS } from './core/runners/index.js';
 import { evaluate, installOnly, loadPolicy, type EvidenceOptions } from './pipeline.js';
-import type { PullRequestFacts } from './core/types.js';
+import type { PullRequestFacts, Receipt } from './core/types.js';
 
 const USAGE = `merge-evidence — re-run a pull request's tests and reconcile them with what it claimed
 
 Usage: merge-evidence --work <dir> --head <sha> --out <receipt.json> [options]
+       merge-evidence verify --receipt <receipt.json> --signature <receipt.sig.json> --public-key <key.pub>
+       merge-evidence keygen [--out <dir>]
 
 Required:
   --work <dir>             Checkout to test (the pull request's head).
@@ -72,7 +75,15 @@ Behaviour:
                            or junit.
   --report-command <cmd>   With --evidence report: the command that produced the
                            report, recorded on the receipt.
+  --signing-key-file <p>   Sign the receipt with this Ed25519 private key (PEM);
+                           writes <out>.sig.json beside the receipt.
   --help                   Print this.
+
+verify  Check a receipt against its detached signature and the public key YOU
+        trust. Exit 0 verified, 1 not verified (the reason on stderr), 2 usage.
+keygen  Write merge-evidence.key (private, PEM) and merge-evidence.pub into
+        --out (default: the current directory) and print the key id.
+
 `;
 
 /**
@@ -125,6 +136,8 @@ function writeFile(path: string, contents: string): void {
  * of this file is what makes the bundle a command.
  */
 export async function main(argv: string[]): Promise<number> {
+  if (argv[0] === 'verify') return verifyMain(argv.slice(1));
+  if (argv[0] === 'keygen') return keygenMain(argv.slice(1));
   let parsed;
   try {
     parsed = parseArgs({
@@ -157,6 +170,7 @@ export async function main(argv: string[]): Promise<number> {
         'report-path': { type: 'string', multiple: true },
         'report-format': { type: 'string' },
         'report-command': { type: 'string' },
+        'signing-key-file': { type: 'string' },
         help: { type: 'boolean' },
       },
     });
@@ -258,7 +272,17 @@ export async function main(argv: string[]): Promise<number> {
       ...(evidence === undefined ? {} : { evidence }),
     });
 
-    if (result.receiptJson !== undefined) writeFile(out, result.receiptJson);
+    let receiptJson = result.receiptJson;
+    let signatureNote = '';
+    if (receiptJson !== undefined && result.receipt !== undefined && values['signing-key-file'] !== undefined) {
+      const pem = readRequiredFile('--signing-key-file', values['signing-key-file']);
+      const signedForm = withSignatureMethod(result.receipt, 'key');
+      receiptJson = signedForm.json;
+      const document = signReceipt(Buffer.from(receiptJson, 'utf8'), pem);
+      writeFile(`${out}.sig.json`, `${JSON.stringify(document, null, 2)}\n`);
+      signatureNote = ` signed=${out}.sig.json key=${document.key_id}`;
+    }
+    if (receiptJson !== undefined) writeFile(out, receiptJson);
     if (values.markdown !== undefined && result.rendered !== undefined) {
       writeFile(values.markdown, result.rendered.markdown);
     }
@@ -285,7 +309,7 @@ export async function main(argv: string[]): Promise<number> {
     const totals = result.receipt?.observed.totals;
     process.stdout.write(
       `merge-evidence: verdict=${result.verdict} discrepancies=${result.discrepancies.length}` +
-        ` tests=${totals?.passed ?? 0}/${totals?.run ?? 0} unverifiable=${result.unverifiable.length}\n`,
+        ` tests=${totals?.passed ?? 0}/${totals?.run ?? 0} unverifiable=${result.unverifiable.length}${signatureNote}\n`,
     );
     return 0;
   } catch (err) {
@@ -304,6 +328,117 @@ export async function main(argv: string[]): Promise<number> {
  * `typeof` guards keep the check harmless under an ESM loader, where neither
  * identifier exists.
  */
+
+// ---------------------------------------------------------------------------
+// verify / keygen
+// ---------------------------------------------------------------------------
+
+/**
+ * `merge-evidence verify`: the receipt, its detached signature, and the public
+ * key the verifier trusts. The key embedded in the signature document is not
+ * consulted — trust comes from the copy on the verifier's side.
+ */
+async function verifyMain(argv: string[]): Promise<number> {
+  let values: { receipt?: string; signature?: string; 'public-key'?: string; format?: string; help?: boolean };
+  try {
+    values = parseArgs({
+      args: argv,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        receipt: { type: 'string' },
+        signature: { type: 'string' },
+        'public-key': { type: 'string' },
+        format: { type: 'string' },
+        help: { type: 'boolean' },
+      },
+    }).values;
+  } catch (err) {
+    process.stderr.write(`merge-evidence verify: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+  if (values.help === true) {
+    process.stdout.write('Usage: merge-evidence verify --receipt <receipt.json> --signature <receipt.sig.json> --public-key <key.pub> [--format json]\n');
+    return 0;
+  }
+  try {
+    const receiptPath = values.receipt;
+    const signaturePath = values.signature;
+    const keyPath = values['public-key'];
+    if (receiptPath === undefined || signaturePath === undefined || keyPath === undefined) {
+      throw new UsageError('verify needs --receipt, --signature and --public-key');
+    }
+    const bytes = readRequiredBytes('--receipt', receiptPath);
+    const document: unknown = JSON.parse(readRequiredFile('--signature', signaturePath));
+    const pem = readRequiredFile('--public-key', keyPath);
+    const outcome = verifyReceiptSignature(bytes, document, pem);
+    if (!outcome.ok) {
+      process.stderr.write(`merge-evidence: NOT verified — ${outcome.reason}\n`);
+      return 1;
+    }
+    let receipt: Partial<Receipt> = {};
+    try {
+      receipt = JSON.parse(bytes.toString('utf8')) as Partial<Receipt>;
+    } catch {
+      // the signature is over the bytes; an unparsable receipt is still verified as bytes
+    }
+    const facts = {
+      verified: true,
+      receipt: receiptPath,
+      sha256: outcome.sha256,
+      key_id: outcome.keyId,
+      verdict: receipt.verdict ?? null,
+      head_sha: receipt.pr?.head_sha ?? null,
+      repo: receipt.pr?.repo ?? null,
+      number: receipt.pr?.number ?? null,
+    };
+    process.stdout.write(
+      values.format === 'json'
+        ? `${JSON.stringify(facts)}\n`
+        : `merge-evidence: verified ${receiptPath} sha256=${outcome.sha256} key=${outcome.keyId} verdict=${facts.verdict ?? '?'} head=${facts.head_sha ?? '?'}\n`,
+    );
+    return 0;
+  } catch (err) {
+    const detail = err instanceof UsageError ? err.message : err instanceof Error ? err.stack ?? err.message : String(err);
+    process.stderr.write(`merge-evidence verify: ${detail}\n`);
+    return 2;
+  }
+}
+
+/** `merge-evidence keygen`: a fresh Ed25519 pair; the private half is written with owner-only permissions. */
+async function keygenMain(argv: string[]): Promise<number> {
+  let values: { out?: string; help?: boolean };
+  try {
+    values = parseArgs({ args: argv, allowPositionals: false, strict: true, options: { out: { type: 'string' }, help: { type: 'boolean' } } }).values;
+  } catch (err) {
+    process.stderr.write(`merge-evidence keygen: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+  if (values.help === true) {
+    process.stdout.write('Usage: merge-evidence keygen [--out <dir>]\n');
+    return 0;
+  }
+  const dir = resolve(values.out ?? '.');
+  const privatePath = `${dir}/merge-evidence.key`;
+  const publicPath = `${dir}/merge-evidence.pub`;
+  if (existsSync(privatePath)) {
+    process.stderr.write(`merge-evidence keygen: ${privatePath} exists; not overwriting a signing key\n`);
+    return 2;
+  }
+  const pair = generateSigningKeyPair();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(privatePath, pair.privateKeyPem, { encoding: 'utf8', mode: 0o600 });
+  writeFileSync(publicPath, pair.publicKeyPem, 'utf8');
+  process.stdout.write(`merge-evidence: wrote ${privatePath} (keep secret) and ${publicPath}\nkey id: ${pair.keyId}\n`);
+  return 0;
+}
+
+/** A file's bytes, or a usage error naming the flag that pointed at it. */
+function readRequiredBytes(flag: string, path: string): Buffer {
+  if (!existsSync(path)) throw new UsageError(`${flag}: no such file: ${path}`);
+  return readFileSync(path);
+}
+
 const isEntryPoint =
   typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module;
 

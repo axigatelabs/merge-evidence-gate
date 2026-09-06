@@ -7,7 +7,8 @@ coverage/
 # gate outputs produced during local runs
 receipt.json
 merge-evidence-report.*
-# dist/ is committed only at release time (GitHub Actions run the bundle);
+# dist/ is committed only at release time (GitHub Actions run the bundle),
+# force-added: dist/index.js, its dist/<id>.index.js chunk files, licenses.txt;
 # keep it ignored on the build branch so workers never fight over it.
 dist/
 # study harness: fetched PR data, sandbox work dirs, and receipts are local

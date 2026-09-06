@@ -84,6 +84,43 @@ above. If you rename the job, add the new name here.
 
 Agent pull requests can now no longer merge on a claim alone.
 
+### 3. Roll it out the safe way
+
+The teams that adopted the gate first did it in this order, and it is the order
+we recommend:
+
+1. **Advisory first.** `fail-on: never` posts the comment, the job summary and
+   the receipt artifact without ever turning the check red. You learn what the
+   gate says about your own pull requests for a week or two, false positives
+   included, before it can block anything.
+2. **Pin a commit, not a tag.** The Action runs with a token that can write
+   pull-request comments. `uses: axigatelabs/merge-evidence-gate@<full sha>`
+   moves only when you move it; `@v1` moves with every release.
+3. **Turn the agent filter off if every pull request of yours is agent-written.**
+   The default `agents-only: true` keys on bot logins and body markers; a
+   worker that emits neither is skipped. `agents-only: 'false'` gates everything.
+4. **Do not pay for a second run.** If your workflow already runs the suite,
+   `evidence: report` makes the gate read that run's report instead of starting
+   another — see [Evidence](#evidence-re-run-read-your-own-report-or-diff-only).
+5. **Then make it required**, and if another tool reads the verdict before
+   merging, have the receipt [signed](#signed-receipts) so that tool can check
+   who produced it.
+
+Put together:
+
+```yaml
+      - run: pnpm vitest run --reporter=json --outputFile=.reports/vitest.json
+      - uses: axigatelabs/merge-evidence-gate@<full commit sha>
+        if: always()                     # read the report even when the suite failed
+        with:
+          agents-only: 'false'           # every pull request here is agent-written
+          fail-on: never                 # advisory until the receipts have earned trust
+          evidence: report
+          report-path: .reports/vitest.json
+          report-command: pnpm vitest run
+          sign: attest                   # needs id-token: write and attestations: write
+```
+
 ## How it works
 
 1. **Detect.** Decide whether this pull request looks agent-authored — bot login,
@@ -233,6 +270,77 @@ The one rule that makes `report` safe: a report that is missing, empty,
 unreadable, or lists no tests is **no evidence, never a pass**. A job whose test
 step was skipped by an `if:` still finishes green; the gate does not.
 
+## Signed receipts
+
+A receipt on its own is a file in an artifact and a comment on a pull request.
+When another tool reads the verdict before allowing a merge, it needs to know
+the receipt came from the gate, on that commit, and has not been edited. Two
+ways, chosen with the `sign` input; both sign the exact bytes of `receipt.json`,
+and both record `signature.method` inside the receipt before signing.
+
+**`sign: attest` — keyless, GitHub-native.** The gate creates a [GitHub artifact
+attestation](https://docs.github.com/en/actions/concepts/security/artifact-attestations):
+an in-toto statement whose subject is `receipt.json` by sha256 and whose
+predicate is the receipt itself, signed with a Sigstore certificate issued to
+the workflow's own identity, stored with the repository. The job needs
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write        # the workflow's identity, for the signing certificate
+  attestations: write    # to store the attestation with the repository
+```
+
+and the outputs `attestation-id`, `attestation-url` and `receipt-sha256` say
+what was signed. The Sigstore bundle is also uploaded next to the receipt
+(`receipt.sigstore.json`) for offline verification. To verify:
+
+```bash
+gh attestation verify receipt.json -R owner/name \
+  --predicate-type https://merge-evidence.dev/receipt/v1 \
+  --signer-workflow owner/name/.github/workflows/merge-evidence.yml \
+  --format json
+```
+
+`--signer-workflow` is the part that matters: the certificate binds the
+attestation to the workflow that produced it, and only the certificate and the
+witnessed timestamps are beyond the reach of whoever controls the workflow run.
+The predicate — the receipt — is what that workflow said. A merge gate reading
+it should check the certificate's identity, then `pr.head_sha` against the
+commit it is about to merge, then the verdict. Private repositories use
+GitHub's own Sigstore instance; public ones the public-good instance, whose
+transparency log is public — the receipt is designed to be safe to publish. A
+fork pull request has no OIDC token, so its receipt cannot be attested; the
+gate says so in a warning and the receipt is unsigned.
+
+**`sign: key` — a key of your own, anywhere.** For runners or plans without
+attestations. The gate signs `receipt.json` with an Ed25519 private key from
+`signing-key` (a repository secret) and writes `receipt.sig.json` beside it: the
+receipt's sha256, the base64 signature, and the key id — sha256 of the public
+half. Make a key pair once:
+
+```bash
+node dist/cli/index.js keygen --out ./keys   # merge-evidence.key (secret) and merge-evidence.pub
+```
+
+Store the private key as a secret, pass it as `signing-key: ${{ secrets.MERGE_EVIDENCE_SIGNING_KEY }}`,
+and give the public key to whoever verifies:
+
+```bash
+node dist/cli/index.js verify --receipt receipt.json --signature receipt.sig.json \
+  --public-key merge-evidence.pub --format json
+# exit 0 verified · 1 not verified (reason on stderr) · 2 usage
+```
+
+The verifier trusts the public key it holds, never the copy embedded in the
+signature document.
+
+In both modes, **the verifier is the enforcement point.** If signing fails (no
+OIDC token on a fork, a missing permission, a key that will not parse) the gate
+warns and still publishes an unsigned receipt; a merge gate that requires a
+signature must fail closed when it finds none.
+
 ## Configuration
 
 ### Action inputs
@@ -249,6 +357,8 @@ All optional. Defaults are from [`action.yml`](action.yml).
 | `report-path` | *(empty)* | With `evidence: report`: the report file(s), relative to `working-directory`; several separated by newlines or commas. Missing, empty or unreadable is no evidence, never a pass. |
 | `report-format` | `auto` | With `evidence: report`: `auto` recognises go `-json`, jest/vitest JSON and JUnit XML (pytest, nextest, node's junit reporter); or name one of `go`, `pytest`, `jest`, `vitest`, `node-test`, `junit`. |
 | `report-command` | *(empty)* | With `evidence: report`: the exact command your test step ran, recorded on the receipt and used to map claimed commands. Omitted: the repository's own test command is presumed, and the receipt says so. |
+| `sign` | `none` | `attest`: a GitHub artifact attestation over `receipt.json` with the workflow's own identity (needs `id-token: write` and `attestations: write`). `key`: a detached Ed25519 signature in `receipt.sig.json` using `signing-key`. See [Signed receipts](#signed-receipts). |
+| `signing-key` | *(empty)* | With `sign: key`: an Ed25519 private key in PEM (PKCS#8), from a secret. `merge-evidence keygen` makes one. |
 | `base-comparison` | `auto` | When the head run fails, re-run the same command at the base commit so failures the repository already had are not counted against the pull request. `never` skips that run. |
 | `comment` | `true` | Post and update the sticky receipt comment. |
 | `upload-receipt` | `true` | Upload `receipt.json` as a workflow artifact. |
@@ -262,6 +372,10 @@ All optional. Defaults are from [`action.yml`](action.yml).
 | `verdict` | `PASS` \| `NEEDS_HUMAN` \| `FAIL` \| `NEUTRAL` |
 | `receipt-path` | Path to the generated `receipt.json` |
 | `discrepancies` | Number of discrepancies found |
+| `receipt-sha256` | sha256 (hex) of the `receipt.json` bytes — the subject a signature or attestation covers. |
+| `attestation-id` / `attestation-url` | With `sign: attest`: the stored attestation and its page on GitHub. |
+| `bundle-path` | With `sign: attest`: the Sigstore bundle (`receipt.sigstore.json`), for `gh attestation verify --bundle`. |
+| `signature-path` / `key-id` | With `sign: key`: `receipt.sig.json` and the signing key's id. |
 
 ### `.merge-evidence.yml`
 
@@ -348,6 +462,13 @@ node dist/cli/index.js \
 | `--report-path <path>` | With `--evidence report`: a report file, relative to `--work`; repeat the flag for several. |
 | `--report-format <fmt>` | `auto` (default), `go`, `pytest`, `jest`, `vitest`, `node-test`, `junit`. |
 | `--report-command <cmd>` | With `--evidence report`: the command that produced the report, recorded on the receipt. |
+| `--signing-key-file <path>` | Sign the receipt with this Ed25519 private key (PEM); writes `<out>.sig.json` beside it. |
+
+Two subcommands go with signing: `merge-evidence keygen [--out <dir>]` writes a
+fresh Ed25519 pair, and `merge-evidence verify --receipt … --signature …
+--public-key …` checks a receipt against its detached signature and the public
+key you hold (exit 0 verified, 1 not verified with the reason on stderr, 2
+usage; `--format json` for tooling). See [Signed receipts](#signed-receipts).
 
 Two outputs, always in the same place: `receipt.json` at `--out`, and a
 `<out>.meta.json` sidecar carrying `verdict`, `skipped`, `agent`, `unverifiable`,
@@ -390,9 +511,10 @@ Details: receipt.json (artifact) · rerun: `go test -json -count=1 ./...` · 1m5
 - **Details** — where the machine-readable receipt is, and the exact command to
   reproduce the run.
 
-The full receipt (`merge-evidence/receipt/v1`) is an open format, MIT-licensed
-and designed to be emitted as an in-toto Statement with predicate type
-`https://merge-evidence.dev/receipt/v1`. Field reference:
+The full receipt (`merge-evidence/receipt/v1`) is an open format, MIT-licensed,
+and with `sign: attest` it is emitted as an in-toto Statement with predicate type
+`https://merge-evidence.dev/receipt/v1` — see [Signed receipts](#signed-receipts).
+Field reference:
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
 ## Verifying a receipt by hand
@@ -433,9 +555,11 @@ gate.
   `tests_digest`, depends on the checkout directory. Reproducing a digest from a
   hosted runner means checking out at the same path; comparing the sorted id
   lists works regardless.
-- **v1 receipts are not signed.** Signing via `actions/attest` is planned for
-  v1.1. Until then a receipt's integrity comes from where you got it: a workflow
-  artifact on a run you can inspect.
+- **A signature proves who produced the receipt, not that its contents are
+  true.** An attestation binds the receipt to the workflow that ran the gate; a
+  key signature binds it to whoever holds the key. Anyone who can change that
+  workflow can change what it attests. Pin the signer workflow when verifying,
+  and treat an unsigned receipt as unverified when your policy expects one.
 - **The gate re-runs your tests; it does not sandbox them.** A test suite that
   reaches the network still reaches the network. v2 plans a scrubbed-environment
   run to close that.
@@ -499,7 +623,7 @@ nothing is a pull request a reviewer knows to read carefully.
 
 ## Status
 
-Version 0.10.0, on `main`, listed on the
+Version 0.11.0, on `main`, listed on the
 [GitHub Marketplace](https://github.com/marketplace/actions/merge-evidence-gate).
 The `v1` tag moves with each release. The Action runs with a token that can
 write pull-request comments, so if you want a fixed version, pin a commit SHA
@@ -508,8 +632,9 @@ write pull-request comments, so if you want a fixed version, pin a commit SHA
 What is in the box: agent detection, claim extraction, test-command detection
 and reporter injection, runner adapters for Go, pytest, Jest, Vitest, node's
 built-in test runner, `cargo test` and cargo-nextest (plus `make`, npm/pnpm/yarn, uv, poetry and similar
-wrappers around them), the report-reading and diff-only evidence modes, diff
-analysis, base-commit comparison, the reconcile
+wrappers around them), the report-reading and diff-only evidence modes, signed
+receipts (GitHub attestation or an Ed25519 key), diff analysis, base-commit
+comparison, the reconcile
 step, and the receipt and comment renderers (`src/core/`). Any other test
 command still runs, but yields no per-test evidence: the receipt says so and
 the count and test-set checks abstain rather than guess. The two front-ends are
@@ -527,11 +652,12 @@ before every commit.
 
 ## Roadmap
 
-- **v1.1 — signed receipts.** Emit the receipt as an in-toto Statement with
-  predicate type `https://merge-evidence.dev/receipt/v1` and sign it with
-  [`actions/attest`](https://github.com/actions/attest), so
-  `gh attestation verify` becomes the last step of
-  [docs/verify-a-receipt.md](docs/verify-a-receipt.md).
+- **Base comparison in report mode.** Accept a second report taken at the base
+  commit, so `evidence: report` can tell a failure the pull request introduced
+  from one the repository already had, as the re-run does today.
+- **Cross-repository receipts.** A change whose tests pass can still break a
+  consumer in another repository; a receipt that carries the consumer's run is
+  the next thing a merge gate would want to read.
 - **v2 — scrubbed-environment run.** Execute the suite with network egress and
   ambient credentials removed, so a green run cannot depend on anything outside
   the repository.

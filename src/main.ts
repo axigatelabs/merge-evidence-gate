@@ -42,7 +42,9 @@ import {
   type Octokit,
   type RepoRef,
 } from './action/github.js';
+import { attestReceipt } from './action/attest.js';
 import { applyVerdict, type FailOn } from './action/verdict.js';
+import { sha256Hex, signReceipt, withSignatureMethod } from './core/signing.js';
 import { isReportFormat, REPORT_FORMATS, type ReportFormat } from './core/runners/index.js';
 import { evaluate, loadPolicy, writeSafely, type EvidenceOptions } from './pipeline.js';
 import type { PullRequestFacts, Verdict } from './core/types.js';
@@ -67,6 +69,8 @@ interface Inputs {
   failOn: FailOn;
   baseComparison: 'auto' | 'never';
   evidence: EvidenceOptions | undefined;
+  sign: 'none' | 'attest' | 'key';
+  signingKey: string;
   comment: boolean;
   uploadReceipt: boolean;
   policyFile: string;
@@ -127,6 +131,14 @@ function readEvidenceInputs(): EvidenceOptions | undefined {
   return { kind: 'report', paths, ...(format === undefined ? {} : { format }), ...(command === '' ? {} : { command }) };
 }
 
+function readSignInput(): Inputs['sign'] {
+  const raw = core.getInput('sign').trim().toLowerCase();
+  if (raw === '' || raw === 'none') return 'none';
+  if (raw === 'attest' || raw === 'key') return raw;
+  core.warning(`input 'sign': expected 'none', 'attest' or 'key', got '${raw}' — not signing`);
+  return 'none';
+}
+
 function readInputs(): Inputs {
   const failOnRaw = core.getInput('fail-on').trim().toLowerCase();
   if (failOnRaw !== '' && failOnRaw !== 'fail' && failOnRaw !== 'needs-human' && failOnRaw !== 'never') {
@@ -138,6 +150,8 @@ function readInputs(): Inputs {
   }
   return {
     evidence: readEvidenceInputs(),
+    sign: readSignInput(),
+    signingKey: core.getInput('signing-key'),
     token: core.getInput('github-token'),
     testCommand: core.getInput('test-command').trim(),
     agentsOnly: optionalBoolInput('agents-only'),
@@ -219,10 +233,10 @@ function annotate(discrepancies: ReadonlyArray<{ check: string; severity: string
 }
 
 /** Upload `receipt.json` so the full evidence outlives the log retention. */
-async function uploadReceipt(receiptPath: string, rootDir: string): Promise<void> {
+async function uploadReceipt(paths: string[], rootDir: string): Promise<void> {
   try {
     const client = new DefaultArtifactClient();
-    await client.uploadArtifact(ARTIFACT_NAME, [receiptPath], rootDir);
+    await client.uploadArtifact(ARTIFACT_NAME, paths, rootDir);
     core.info(`artifact: uploaded ${ARTIFACT_NAME}`);
   } catch (err) {
     core.warning(`artifact: could not upload ${ARTIFACT_NAME} (${err instanceof Error ? err.message : String(err)})`);
@@ -333,16 +347,24 @@ export async function run(): Promise<void> {
     throw new Error('the pipeline returned no receipt');
   }
 
+  // Signing changes the bytes' meaning, not the bytes: the method is recorded
+  // in the receipt before it is written, and what is written is what is signed.
+  const signedForm = inputs.sign === 'none' ? { receipt, json: receiptJson } : withSignatureMethod(receipt, inputs.sign);
   const receiptPath = join(workspace, 'receipt.json');
-  writeSafely(receiptPath, receiptJson);
+  writeSafely(receiptPath, signedForm.json);
   setOutputs(verdict, discrepancies.length, receiptPath);
+  const receiptBytes = Buffer.from(signedForm.json, 'utf8');
+  core.setOutput('receipt-sha256', sha256Hex(receiptBytes));
 
   annotate(discrepancies);
 
-  if (inputs.uploadReceipt) await uploadReceipt(receiptPath, workspace);
+  const artifactPaths = [receiptPath];
+  const signatureLine = await signIfAsked(inputs, signedForm.receipt, receiptBytes, workspace, ref, artifactPaths);
+
+  if (inputs.uploadReceipt) await uploadReceipt(artifactPaths, workspace);
 
   try {
-    await core.summary.addRaw(rendered.markdown, true).write();
+    await core.summary.addRaw(signatureLine === undefined ? rendered.markdown : `${rendered.markdown}\n\n${signatureLine}`, true).write();
   } catch (err) {
     core.warning(`summary: could not write the job summary (${err instanceof Error ? err.message : String(err)})`);
   }
@@ -352,6 +374,67 @@ export async function run(): Promise<void> {
   }
 
   applyVerdict(verdict, inputs.failOn, rendered.title);
+}
+
+/**
+ * Sign the receipt the way the inputs ask, if they ask. Every failure is a
+ * warning with the reason: an unsigned receipt is still a receipt, and the
+ * verifier — not this step — is where a missing signature fails a merge.
+ * Returns the line the job summary shows for it.
+ */
+async function signIfAsked(
+  inputs: Inputs,
+  receipt: NonNullable<Awaited<ReturnType<typeof evaluate>>['receipt']>,
+  receiptBytes: Buffer,
+  workspace: string,
+  ref: RepoRef,
+  artifactPaths: string[],
+): Promise<string | undefined> {
+  if (inputs.sign === 'attest') {
+    try {
+      const repoIsPrivate = (github.context.payload.repository as { private?: unknown } | undefined)?.private === true;
+      const result = await attestReceipt({ receiptBytes, receipt, token: inputs.token, repoIsPrivate });
+      const bundlePath = join(workspace, 'receipt.sigstore.json');
+      writeSafely(bundlePath, result.bundleJson);
+      artifactPaths.push(bundlePath);
+      core.setOutput('bundle-path', bundlePath);
+      if (result.attestationId !== undefined) {
+        const url = `https://github.com/${ref.owner}/${ref.repo}/attestations/${result.attestationId}`;
+        core.setOutput('attestation-id', result.attestationId);
+        core.setOutput('attestation-url', url);
+        core.info(`sign: attested receipt.json (sha256 ${result.sha256}) — ${url}`);
+        return `Signed: [attestation ${result.attestationId}](${url}) over receipt.json sha256 \`${result.sha256}\` · verify with \`gh attestation verify receipt.json -R ${ref.owner}/${ref.repo} --predicate-type https://merge-evidence.dev/receipt/v1\``;
+      }
+      core.info(`sign: attested receipt.json (sha256 ${result.sha256}); the store did not return an id — the bundle is in the artifact`);
+      return `Signed: Sigstore bundle in the artifact (receipt.sigstore.json) over receipt.json sha256 \`${result.sha256}\``;
+    } catch (err) {
+      core.warning(
+        `sign: could not attest the receipt (${err instanceof Error ? err.message : String(err)}) — it is unsigned. ` +
+          "Attesting needs `id-token: write` and `attestations: write` on the job, and a fork pull request has no OIDC token.",
+      );
+      return undefined;
+    }
+  }
+  if (inputs.sign === 'key') {
+    if (inputs.signingKey.trim() === '') {
+      core.warning("sign: 'key' needs the `signing-key` input (an Ed25519 private key in PEM, from a secret) — the receipt is unsigned");
+      return undefined;
+    }
+    try {
+      const document = signReceipt(receiptBytes, inputs.signingKey);
+      const signaturePath = join(workspace, 'receipt.sig.json');
+      writeSafely(signaturePath, `${JSON.stringify(document, null, 2)}\n`);
+      artifactPaths.push(signaturePath);
+      core.setOutput('signature-path', signaturePath);
+      core.setOutput('key-id', document.key_id);
+      core.info(`sign: signed receipt.json (sha256 ${document.subject.sha256}) with key ${document.key_id}`);
+      return `Signed: receipt.sig.json with key \`${document.key_id}\` over receipt.json sha256 \`${document.subject.sha256}\` · verify with \`merge-evidence verify --receipt receipt.json --signature receipt.sig.json --public-key <your copy>.pub\``;
+    } catch (err) {
+      core.warning(`sign: could not sign the receipt (${err instanceof Error ? err.message : String(err)}) — it is unsigned`);
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 run().catch((err: unknown) => {

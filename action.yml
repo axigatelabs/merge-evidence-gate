@@ -42,6 +42,14 @@ inputs:
     description: 'With evidence: report — the exact command your test step ran, recorded on the receipt and used to map claimed commands. When omitted the gate presumes the repository''s own test command and says so.'
     required: false
     default: ''
+  sign:
+    description: 'Sign the receipt: "none" (default); "attest" — a GitHub artifact attestation over receipt.json with this workflow''s own identity (needs id-token: write and attestations: write; verify with gh attestation verify); "key" — a detached Ed25519 signature in receipt.sig.json using signing-key (verify with merge-evidence verify).'
+    required: false
+    default: 'none'
+  signing-key:
+    description: 'With sign: key — an Ed25519 private key in PEM (PKCS#8), from a secret. Generate one with `merge-evidence keygen`.'
+    required: false
+    default: ''
   comment:
     description: 'Post/update the sticky receipt comment on the PR.'
     required: false
@@ -66,6 +74,18 @@ outputs:
     description: 'Path to the generated receipt.json'
   discrepancies:
     description: 'Number of discrepancies found'
+  receipt-sha256:
+    description: 'sha256 (hex) of the receipt.json bytes — the subject a signature or attestation covers'
+  attestation-id:
+    description: 'With sign: attest — id of the stored attestation'
+  attestation-url:
+    description: 'With sign: attest — link to the attestation on GitHub'
+  bundle-path:
+    description: 'With sign: attest — path of the Sigstore bundle (receipt.sigstore.json), for offline verification'
+  signature-path:
+    description: 'With sign: key — path of receipt.sig.json'
+  key-id:
+    description: 'With sign: key — sha256 of the signing key''s public half, the name a verifier trusts'
 
 runs:
   using: 'node24'

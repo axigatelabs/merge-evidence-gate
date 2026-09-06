@@ -9,6 +9,33 @@ The receipt format is versioned separately from the action: field names in
 and renames or removals require `/v2`. See
 [docs/receipt-spec.md](docs/receipt-spec.md).
 
+## 0.11.0 — 2026-09-05
+
+### Added
+
+- Signed receipts. `sign: attest` creates a GitHub artifact attestation over
+  `receipt.json` (in-toto statement, predicate type
+  `https://merge-evidence.dev/receipt/v1`, predicate = the receipt) with the
+  workflow's own identity, stores it with the repository, and writes the
+  Sigstore bundle to `receipt.sigstore.json`; needs `id-token: write` and
+  `attestations: write`. `sign: key` writes a detached Ed25519 signature,
+  `receipt.sig.json` (schema `merge-evidence/signature/v1`), with a key from
+  `signing-key`. Both sign the exact receipt bytes and record
+  `signature.method` in the receipt first. A signing failure is a warning and
+  an unsigned receipt — the verifier is the enforcement point.
+- Outputs `receipt-sha256`, `attestation-id`, `attestation-url`, `bundle-path`,
+  `signature-path`, `key-id`; the sidecar files ride in the receipt artifact.
+- CLI: `merge-evidence keygen` (an Ed25519 pair), `merge-evidence verify`
+  (exit 0 verified, 1 not, 2 usage; `--format json`), and `--signing-key-file`
+  on a run.
+- README: a roll-out order (advisory → pinned → agent filter → evidence: report
+  → required, signed).
+
+### Changed
+
+- The bundle now carries `@actions/attest`; the Action is unchanged when
+  `sign` is left at `none`.
+
 ## 0.10.0 — 2026-09-05
 
 ### Added

@@ -28,10 +28,14 @@ jobs:
       - name: Committed bundle matches the source
         # ncc output is deterministic; a diff here means someone changed src/
         # without rebuilding, or built with different flags.
+        # The bundle may come with chunk files (`dist/<id>.index.js`) that a
+        # dependency loads lazily; they must be committed alongside it, so the
+        # fresh build is staged and compared as a set.
         run: |
-          git diff --quiet -- dist/index.js || {
-            echo '::error::dist/index.js is stale — run `npm run build` and commit it'
-            git diff --stat -- dist/index.js
+          git add -f dist/index.js dist/*.index.js dist/licenses.txt
+          git diff --cached --quiet -- dist || {
+            echo '::error::dist/ is stale — run `npm run build` and commit dist/index.js and its chunk files'
+            git diff --cached --stat -- dist
             exit 1
           }
       - name: Bundle loads on its own and action.yml points at it
@@ -44,6 +48,7 @@ jobs:
         run: |
           test -f dist/index.js
           grep -q "main: 'dist/index.js'" action.yml
+          for chunk in dist/*.index.js; do [ -e "$chunk" ] && node -e "require('./$chunk')"; done
           ! grep -q "require('./" dist/index.js
           GITHUB_EVENT_NAME=push GITHUB_EVENT_PATH=/nonexistent node dist/index.js | tee /tmp/gate.out
           grep -q "nothing to do" /tmp/gate.out
