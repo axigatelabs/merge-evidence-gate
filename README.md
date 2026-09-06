@@ -86,8 +86,8 @@ Agent pull requests can now no longer merge on a claim alone.
 
 ### 3. Roll it out the safe way
 
-The teams that adopted the gate first did it in this order, and it is the order
-we recommend:
+The first team to adopt the gate did it in this order, and it is the order we
+recommend:
 
 1. **Advisory first.** `fail-on: never` posts the comment, the job summary and
    the receipt artifact without ever turning the check red. You learn what the
@@ -102,7 +102,10 @@ we recommend:
 4. **Do not pay for a second run.** If your workflow already runs the suite,
    `evidence: report` makes the gate read that run's report instead of starting
    another — see [Evidence](#evidence-re-run-read-your-own-report-or-diff-only).
-5. **Then make it required**, and if another tool reads the verdict before
+5. **Cancel superseded runs.** A re-push should not pay twice on metered
+   minutes: `concurrency: { group: merge-evidence-${{ github.ref }}, cancel-in-progress: true }`
+   on the job.
+6. **Then make it required**, and if another tool reads the verdict before
    merging, have the receipt [signed](#signed-receipts) so that tool can check
    who produced it.
 
@@ -269,6 +272,13 @@ having watched it being written.
 The one rule that makes `report` safe: a report that is missing, empty,
 unreadable, or lists no tests is **no evidence, never a pass**. A job whose test
 step was skipped by an `if:` still finishes green; the gate does not.
+
+`report` reads any JUnit XML, so a runner the gate has no adapter for can still
+give per-test evidence this way. Python's `unittest`, for instance: run it under
+pytest, which collects `unittest.TestCase` classes, with
+`pytest --junitxml=.reports/junit.xml`, or with
+[unittest-xml-reporting](https://pypi.org/project/unittest-xml-reporting/)
+(`python -m xmlrunner -o .reports`), and point `report-path` at the file.
 
 ## Signed receipts
 
